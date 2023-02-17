@@ -100,6 +100,9 @@
 
 #include "CLI.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 // TODO: uniform variable spelling
 
 const QString NdsRomMimeType = "application/x-nintendo-ds-rom";
@@ -1186,6 +1189,37 @@ bool EmuThread::emuIsActive()
     return (RunningSomething == 1);
 }
 
+GLuint EmuThread::loadImageAsOpenGLTexture(const char* path, const char* format, int width, int height, int channels)
+{
+    QImage* image = new QImage(path);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    image->save(&buffer, format);
+    unsigned char* bytes_data = (unsigned char*)bytes.data(); 
+    DWORD res_size = (DWORD)bytes.size();
+    unsigned char* image_data = stbi_load_from_memory(bytes_data, res_size, &width, &height, &channels, 0);
+    if (!image_data)
+    {
+        return NULL;
+    }
+
+    GLuint texture_id;
+    glGenTextures(1, &texture_id);
+
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, image_data);
+
+    stbi_image_free(image_data);
+
+    return texture_id;
+}
+
 void EmuThread::drawScreenGL()
 {
     int w = windowInfo.surface_width;
@@ -1324,6 +1358,17 @@ void EmuThread::drawScreenGL()
             glDisable(GL_SCISSOR_TEST);
         }
     }
+
+    if (!mainMenuBgImageTextureId)
+    {
+        mainMenuBgImageTextureId = loadImageAsOpenGLTexture(":/images/mainmenu_bg.jpg", "JPG", 1000, 1230, 3);
+        if (!mainMenuBgImageTextureId) {
+            printf("\n\nFailed to load main menu background image\n\n");
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_2D, mainMenuBgImageTextureId);
+    glDrawArrays(GL_TRIANGLE_STRIP, 2*3*2, 6);
 
     screenSettingsLock.unlock();
 

@@ -32,6 +32,7 @@
 #include <QMutex>
 #include <QScreen>
 #include <QCloseEvent>
+#include <QBuffer>
 
 #include <atomic>
 
@@ -87,6 +88,7 @@ signals:
     void swapScreensToggle();
 
 private:
+    GLuint loadImageAsOpenGLTexture(const char* path, const char* format, int width, int height, int channels);
     void drawScreenGL();
     void initOpenGL();
     void deinitOpenGL();
@@ -118,6 +120,8 @@ private:
     void debugLogs(int gameScene);
 
     bool refreshAutoScreenSizing();
+
+    GLuint mainMenuBgImageTextureId;
 };
 
 
