@@ -18,6 +18,7 @@
 
 #include <QKeyEvent>
 #include <SDL2/SDL.h>
+#include <math.h>
 
 #include "Input.h"
 #include "Config.h"
@@ -39,6 +40,9 @@ u32 HotkeyPress, HotkeyRelease;
 u32 InputMask, TouchInputMask;
 u32 CmdMenuInputMask, PriorCmdMenuInputMask, PriorPriorCmdMenuInputMask;
 
+u32 JoystickDirectionsAccuracy;
+u32 JoystickDirectionsMovementFrame;
+
 
 void Init()
 {
@@ -59,6 +63,9 @@ void Init()
     CmdMenuInputMask = 0;
     PriorCmdMenuInputMask = 0;
     PriorPriorCmdMenuInputMask = 0;
+
+    JoystickDirectionsMovementFrame = 0;
+    JoystickDirectionsAccuracy = 30; // Bigger numbers will make it more accurate, but also slower to respond
 }
 
 
@@ -156,6 +163,14 @@ void KeyRelease(QKeyEvent* event)
 }
 
 
+void AdvanceJoystickMovementFrame()
+{
+    JoystickDirectionsMovementFrame = JoystickDirectionsMovementFrame + 1;
+    if (JoystickDirectionsMovementFrame >= JoystickDirectionsAccuracy) {
+        JoystickDirectionsMovementFrame = 0;
+    }
+}
+
 bool JoystickButtonDown(int val)
 {
     if (val == -1) return false;
@@ -189,23 +204,44 @@ bool JoystickButtonDown(int val)
 
     if (val & 0x10000)
     {
+        int sensitivity = 7; // MIX: 1 - MAX: 14
+        Sint16 maximumUsableAxis = 32767;
+        Sint16 minimalUsableAxis = (Sint16) (maximumUsableAxis / ((int)pow(2, sensitivity)));
+        int directionsAccuracy = JoystickDirectionsAccuracy;
+        float scale = (((float)directionsAccuracy) / (maximumUsableAxis - minimalUsableAxis));
+        int scaledAxisval = 0;
+
         int axisnum = (val >> 24) & 0xF;
         int axisdir = (val >> 20) & 0xF;
         Sint16 axisval = SDL_JoystickGetAxis(Joystick, axisnum);
 
         switch (axisdir)
         {
-        case 0: // positive
-            if (axisval > 16384) return true;
-            break;
+            case 0: // positive
+                if (axisval > minimalUsableAxis) {
+                    scaledAxisval = (int)(axisval - minimalUsableAxis);
+                    scaledAxisval = (int)(scaledAxisval * scale);
+                    printf("\nscaledAxisval: %d\n", scaledAxisval);
+                    printf("requirement: %d\n", JoystickDirectionsMovementFrame);
+                    printf("movement: %d\n", scaledAxisval > JoystickDirectionsMovementFrame ? 1 : 0);
+                    return scaledAxisval > JoystickDirectionsMovementFrame;
+                }
+                break;
 
-        case 1: // negative
-            if (axisval < -16384) return true;
-            break;
+            case 1: // negative
+                if (axisval < -minimalUsableAxis) {
+                    scaledAxisval = (int)(abs(axisval) - minimalUsableAxis);
+                    scaledAxisval = (int)(scaledAxisval * scale);
+                    printf("\nscaledAxisval: %d\n", scaledAxisval);
+                    printf("requirement: %d\n", JoystickDirectionsMovementFrame);
+                    printf("movement: %d\n", scaledAxisval > JoystickDirectionsMovementFrame ? 1 : 0);
+                    return scaledAxisval > JoystickDirectionsMovementFrame;
+                }
+                break;
 
-        case 2: // trigger
-            if (axisval > 0) return true;
-            break;
+            case 2: // trigger
+                if (axisval > 0) return true;
+                break;
         }
     }
 
@@ -229,6 +265,8 @@ void Process()
         JoystickID = Config::JoystickID;
         OpenJoystick();
     }
+
+    AdvanceJoystickMovementFrame();
 
     JoyInputMask = 0xFFF;
     JoyTouchInputMask = 0xFFF;
