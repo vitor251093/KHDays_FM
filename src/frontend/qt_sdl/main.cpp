@@ -1303,7 +1303,11 @@ void EmuThread::drawScreenGL()
     }
 
     glBindTexture(GL_TEXTURE_2D, mainMenuBgImageTextureId);
-    glDrawArrays(GL_TRIANGLE_STRIP, 2*3*2, 6);
+
+    //glUniform2i(uOSDPos, kOSDMargin, y);
+    //glUniform2i(uOSDSize, 1000, 1230);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 2*3);
+    //glDrawArrays(GL_TRIANGLES, 0, 4*3);
 
     screenSettingsLock.unlock();
 
