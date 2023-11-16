@@ -21,6 +21,80 @@
 
 #include <QDialog>
 #include <QPushButton>
+#include <initializer_list>
+
+#include "Config.h"
+
+static constexpr int keypad_num = 12;
+static constexpr int touchscreen_num = 4;
+static constexpr int cmdmenu_num = 4;
+
+static constexpr std::initializer_list<int> hk_addons =
+{
+    HK_SolarSensorIncrease,
+    HK_SolarSensorDecrease,
+};
+
+static constexpr std::initializer_list<const char*> hk_addons_labels =
+{
+    "[Boktai] Sunlight + ",
+    "[Boktai] Sunlight - ",
+};
+
+static_assert(hk_addons.size() == hk_addons_labels.size());
+
+static constexpr std::initializer_list<int> hk_general =
+{
+    HK_Pause,
+    HK_Reset,
+    HK_FrameStep,
+    HK_FastForward,
+    HK_FastForwardToggle,
+    HK_FullscreenToggle,
+    HK_Lid,
+    HK_Mic,
+    HK_SwapScreens,
+    HK_SwapScreenEmphasis,
+    HK_PowerButton,
+    HK_VolumeUp,
+    HK_VolumeDown
+};
+
+static constexpr std::initializer_list<const char*> hk_general_labels =
+{
+    "Pause/resume",
+    "Reset",
+    "Frame step",
+    "Fast forward",
+    "Toggle FPS limit",
+    "Toggle fullscreen",
+    "Close/open lid",
+    "Microphone",
+    "Swap screens",
+    "Swap screen emphasis",
+    "DSi Power button",
+    "DSi Volume up",
+    "DSi Volume down"
+};
+
+static_assert(hk_general.size() == hk_general_labels.size());
+
+static constexpr std::initializer_list<const char*> cmd_menu_labels =
+{
+    "Command Menu Left",
+    "Command Menu Right",
+    "Command Menu Up",
+    "Command Menu Down",
+};
+
+static constexpr std::initializer_list<const char*> ds_touch_key_labels =
+{
+    "Left",
+    "Right",
+    "Up",
+    "Down"
+};
+
 
 namespace Ui { class InputConfigDialog; }
 class InputConfigDialog;
@@ -60,16 +134,20 @@ private slots:
     void on_cbxJoystick_currentIndexChanged(int id);
 
 private:
-    void populatePage(QWidget* page, int num, const char** labels, int* keymap, int* joymap);
+    void populatePage(QWidget* page,
+        const std::initializer_list<const char*>& labels,
+        int* keymap, int* joymap);
     void setupKeypadPage();
     void setupTouchScreenPage();
+    void setupCommandMenuPage();
 
     Ui::InputConfigDialog* ui;
 
-    int keypadKeyMap[12],   keypadJoyMap[12];
-    int addonsKeyMap[2],    addonsJoyMap[2];
-    int hkGeneralKeyMap[9], hkGeneralJoyMap[9];
+    int keypadKeyMap[12], keypadJoyMap[12];
+    int addonsKeyMap[hk_addons.size()], addonsJoyMap[hk_addons.size()];
+    int hkGeneralKeyMap[hk_general.size()], hkGeneralJoyMap[hk_general.size()];
     int touchScreenKeyMap[4], touchScreenJoyMap[4];
+    int cmdMenuKeyMap[4], cmdMenuJoyMap[4];
 };
 
 

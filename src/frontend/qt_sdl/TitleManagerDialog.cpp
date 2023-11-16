@@ -30,6 +30,8 @@
 #include "ui_TitleManagerDialog.h"
 #include "ui_TitleImportDialog.h"
 
+using Platform::Log;
+using Platform::LogLevel;
 
 bool TitleManagerDialog::NANDInited = false;
 TitleManagerDialog* TitleManagerDialog::currentDlg = nullptr;
@@ -199,7 +201,7 @@ void TitleManagerDialog::onImportTitleFinished(int res)
         DSi_NAND::DeleteTitle(titleid[0], titleid[1]);
 
         QMessageBox::critical(this,
-                              "Import title - melonDS",
+                              "Import title - khDaysMM",
                               "An error occured while installing the title to the NAND.\nCheck that your NAND dump is valid.");
     }
     else
@@ -216,7 +218,7 @@ void TitleManagerDialog::on_btnDeleteTitle_clicked()
     if (!cur) return;
 
     if (QMessageBox::question(this,
-                              "Delete title - melonDS",
+                              "Delete title - khDaysMM",
                               "The title and its associated data will be permanently deleted. Are you sure?",
                               QMessageBox::StandardButtons(QMessageBox::Yes|QMessageBox::No),
                               QMessageBox::No) != QMessageBox::Yes)
@@ -262,7 +264,7 @@ void TitleManagerDialog::onImportTitleData()
     QListWidgetItem* cur = ui->lstTitleList->currentItem();
     if (!cur)
     {
-        printf("what??\n");
+        Log(LogLevel::Error, "what??\n");
         return;
     }
 
@@ -283,7 +285,7 @@ void TitleManagerDialog::onImportTitleData()
         wantedsize = cur->data(Qt::UserRole+3).toUInt();
         break;
     default:
-        printf("what??\n");
+        Log(LogLevel::Warn, "what??\n");
         return;
     }
 
@@ -298,7 +300,7 @@ void TitleManagerDialog::onImportTitleData()
     if (!f)
     {
         QMessageBox::critical(this,
-                              "Import title data - melonDS",
+                              "Import title data - khDaysMM",
                               "Could not open data file.\nCheck that the file is accessible.");
         return;
     }
@@ -310,7 +312,7 @@ void TitleManagerDialog::onImportTitleData()
     if (len != wantedsize)
     {
         QMessageBox::critical(this,
-                              "Import title data - melonDS",
+                              "Import title data - khDaysMM",
                               QString("Cannot import this data file: size is incorrect (expected: %1 bytes).").arg(wantedsize));
         return;
     }
@@ -320,7 +322,7 @@ void TitleManagerDialog::onImportTitleData()
     if (!res)
     {
         QMessageBox::critical(this,
-                              "Import title data - melonDS",
+                              "Import title data - khDaysMM",
                               "Failed to import the data file. Check that your NAND is accessible and valid.");
     }
 }
@@ -332,7 +334,7 @@ void TitleManagerDialog::onExportTitleData()
     QListWidgetItem* cur = ui->lstTitleList->currentItem();
     if (!cur)
     {
-        printf("what??\n");
+        Log(LogLevel::Error, "what??\n");
         return;
     }
 
@@ -357,7 +359,7 @@ void TitleManagerDialog::onExportTitleData()
         wantedsize = cur->data(Qt::UserRole+3).toUInt();
         break;
     default:
-        printf("what??\n");
+        Log(LogLevel::Warn, "what??\n");
         return;
     }
 
@@ -373,7 +375,7 @@ void TitleManagerDialog::onExportTitleData()
     if (!res)
     {
         QMessageBox::critical(this,
-                              "Export title data - melonDS",
+                              "Export title data - khDaysMM",
                               "Failed to Export the data file. Check that the destination directory is writable.");
     }
 }
@@ -409,7 +411,7 @@ void TitleImportDialog::accept()
     if (!f)
     {
         QMessageBox::critical(this,
-                              "Import title - melonDS",
+                              "Import title - khDaysMM",
                               "Could not open executable file.\nCheck that the path is correct and that the file is accessible.");
         return;
     }
@@ -421,7 +423,7 @@ void TitleImportDialog::accept()
     if (titleid[1] != 0x00030004)
     {
         QMessageBox::critical(this,
-                              "Import title - melonDS",
+                              "Import title - khDaysMM",
                               "Executable file is not a DSiWare title.");
         return;
     }
@@ -433,7 +435,7 @@ void TitleImportDialog::accept()
         if (!f)
         {
             QMessageBox::critical(this,
-                                  "Import title - melonDS",
+                                  "Import title - khDaysMM",
                                   "Could not open metadata file.\nCheck that the path is correct and that the file is accessible.");
             return;
         }
@@ -448,7 +450,7 @@ void TitleImportDialog::accept()
         if (tmdtitleid[1] != titleid[0] || tmdtitleid[0] != titleid[1])
         {
             QMessageBox::critical(this,
-                                  "Import title - melonDS",
+                                  "Import title - khDaysMM",
                                   "Title ID in metadata file does not match executable file.");
             return;
         }
@@ -457,7 +459,7 @@ void TitleImportDialog::accept()
     if (DSi_NAND::TitleExists(titleid[1], titleid[0]))
     {
         if (QMessageBox::question(this,
-                                  "Import title - melonDS",
+                                  "Import title - khDaysMM",
                                   "The selected title is already installed. Overwrite it?",
                                   QMessageBox::StandardButtons(QMessageBox::Yes|QMessageBox::No),
                                   QMessageBox::No) != QMessageBox::Yes)
@@ -494,13 +496,13 @@ void TitleImportDialog::tmdDownloaded()
     if (netreply->error() != QNetworkReply::NoError)
     {
         QMessageBox::critical(this,
-                              "Import title - melonDS",
+                              "Import title - khDaysMM",
                               QString("An error occurred while trying to download the metadata file:\n\n") + netreply->errorString());
     }
     else if (netreply->bytesAvailable() < 2312)
     {
         QMessageBox::critical(this,
-                              "Import title - melonDS",
+                              "Import title - khDaysMM",
                               "NUS returned a malformed metadata file.");
     }
     else
@@ -514,7 +516,7 @@ void TitleImportDialog::tmdDownloaded()
         if (tmdtitleid[1] != titleid[0] || tmdtitleid[0] != titleid[1])
         {
             QMessageBox::critical(this,
-                                  "Import title - melonDS",
+                                  "Import title - khDaysMM",
                                   "NUS returned a malformed metadata file.");
         }
         else

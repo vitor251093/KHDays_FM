@@ -19,7 +19,7 @@ jobs:
       run: |
         sudo rm -f /etc/apt/sources.list.d/dotnetdev.list /etc/apt/sources.list.d/microsoft-prod.list
         sudo apt update
-        sudo apt install cmake extra-cmake-modules libcurl4-gnutls-dev libpcap0.8-dev libsdl2-dev qt5-default qtbase5-private-dev qtmultimedia5-dev libslirp0 libslirp-dev libarchive-dev --allow-downgrades
+        sudo apt install cmake extra-cmake-modules libcurl4-gnutls-dev libpcap0.8-dev libsdl2-dev qt5-default qtbase5-private-dev qtmultimedia5-dev libslirp0 libslirp-dev libarchive-dev zstd libzstd-dev --allow-downgrades
     - name: Create build environment
       run: mkdir ${{runner.workspace}}/build
     - name: Configure
@@ -30,8 +30,8 @@ jobs:
       run: |
         make -j$(nproc --all)
         mkdir dist
-        cp melonDS dist
+        cp khDaysMM dist
     - uses: actions/upload-artifact@v1
       with:
-        name: melonDS-ubuntu-x86_64
+        name: khDaysMM-ubuntu-x86_64
         path: ${{runner.workspace}}/build/dist

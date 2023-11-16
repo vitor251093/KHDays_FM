@@ -86,9 +86,13 @@ signals:
     void windowFullscreenToggle();
 
     void swapScreensToggle();
+    void screenEmphasisToggle();
+
+    void syncVolumeLevel();
 
 private:
     GLuint loadImageAsOpenGLTexture(const char* path, const char* format, int width, int height, int channels);
+    bool isBufferBlack(u32* buffer);
     void drawScreenGL();
     void initOpenGL();
     void deinitOpenGL();
@@ -344,6 +348,7 @@ private slots:
     void onUpdateVideoSettings(bool glchange);
 
     void onFullscreenToggled();
+    void onScreenEmphasisToggled();
 
 private:
     void closeEvent(QCloseEvent* event);
@@ -420,7 +425,7 @@ public:
     QAction* actScreenLayout[4];
     QAction* actScreenSwap;
     QActionGroup* grpScreenSizing;
-    QAction* actScreenSizing[7];
+    QAction* actScreenSizing[8];
     QAction* actIntegerScaling;
     QActionGroup* grpScreenAspectTop;
     QAction** actScreenAspectTop;

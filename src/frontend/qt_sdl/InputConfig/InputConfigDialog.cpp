@@ -27,7 +27,6 @@
 
 #include "types.h"
 #include "Platform.h"
-#include "Config.h"
 
 #include "MapButton.h"
 #include "Input.h"
@@ -41,51 +40,9 @@ const int dskeyorder[12] = {0, 1, 10, 11, 5, 4, 6, 7, 9, 8, 2, 3};
 const char* dskeylabels[12] = {"A", "B", "X", "Y", "Left", "Right", "Up", "Down", "L", "R", "Select", "Start"};
 
 const int dstouchkeyorder[12] = {1, 0, 2, 3};
-const char* dstouchkeylabels[12] = {"Left", "Right", "Up", "Down"};
 
-const int hk_addons[] =
-{
-    HK_SolarSensorIncrease,
-    HK_SolarSensorDecrease,
-};
-
-const char* hk_addons_labels[] =
-{
-    "[Boktai] Sunlight + ",
-    "[Boktai] Sunlight - ",
-};
-
-const int hk_general[] =
-{
-    HK_Pause,
-    HK_Reset,
-    HK_FrameStep,
-    HK_FastForward,
-    HK_FastForwardToggle,
-    HK_FullscreenToggle,
-    HK_Lid,
-    HK_Mic,
-    HK_SwapScreens
-};
-
-const char* hk_general_labels[] =
-{
-    "Pause/resume",
-    "Reset",
-    "Frame step",
-    "Fast forward",
-    "Toggle FPS limit",
-    "Toggle fullscreen",
-    "Close/open lid",
-    "Microphone",
-    "Swap screens"
-};
-
-const int keypad_num = 12;
-const int hk_addons_num = 2;
-const int hk_general_num = 9;
-const int touchscreen_num = 4;
-
+const int dscmdmenukeyorder[12] = {1, 0, 2, 3};
+const char* dscmdmenukeylabels[12] = {"Left", "Right", "Up", "Down"};
 
 InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new Ui::InputConfigDialog)
 {
@@ -98,16 +55,20 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
         keypadJoyMap[i] = Config::JoyMapping[dskeyorder[i]];
     }
 
-    for (int i = 0; i < hk_addons_num; i++)
+    int i = 0;
+    for (int hotkey : hk_addons)
     {
-        addonsKeyMap[i] = Config::HKKeyMapping[hk_addons[i]];
-        addonsJoyMap[i] = Config::HKJoyMapping[hk_addons[i]];
+        addonsKeyMap[i] = Config::HKKeyMapping[hotkey];
+        addonsJoyMap[i] = Config::HKJoyMapping[hotkey];
+        i++;
     }
 
-    for (int i = 0; i < hk_general_num; i++)
+    i = 0;
+    for (int hotkey : hk_general)
     {
-        hkGeneralKeyMap[i] = Config::HKKeyMapping[hk_general[i]];
-        hkGeneralJoyMap[i] = Config::HKJoyMapping[hk_general[i]];
+        hkGeneralKeyMap[i] = Config::HKKeyMapping[hotkey];
+        hkGeneralJoyMap[i] = Config::HKJoyMapping[hotkey];
+        i++;
     }
 
     for (int i = 0; i < touchscreen_num; i++)
@@ -116,8 +77,14 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
         touchScreenJoyMap[i] = Config::TouchJoyMapping[dstouchkeyorder[i]];
     }
 
-    populatePage(ui->tabAddons, hk_addons_num, hk_addons_labels, addonsKeyMap, addonsJoyMap);
-    populatePage(ui->tabHotkeysGeneral, hk_general_num, hk_general_labels, hkGeneralKeyMap, hkGeneralJoyMap);
+    for (int i = 0; i < cmdmenu_num; i++)
+    {
+        cmdMenuKeyMap[i] = Config::CmdMenuKeyMapping[dscmdmenukeyorder[i]];
+        cmdMenuJoyMap[i] = Config::CmdMenuJoyMapping[dscmdmenukeyorder[i]];
+    }
+
+    populatePage(ui->tabAddons, hk_addons_labels, addonsKeyMap, addonsJoyMap);
+    populatePage(ui->tabHotkeysGeneral, hk_general_labels, hkGeneralKeyMap, hkGeneralJoyMap);
 
     int njoy = SDL_NumJoysticks();
     if (njoy > 0)
@@ -137,6 +104,7 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
 
     setupKeypadPage();
     setupTouchScreenPage();
+    setupCommandMenuPage();
 
     int inst = Platform::InstanceID();
     if (inst > 0)
@@ -178,13 +146,26 @@ void InputConfigDialog::setupTouchScreenPage()
     QVBoxLayout* main_layout = new QVBoxLayout();
 
     QWidget* touch_widget = new QWidget();
-    populatePage(touch_widget, touchscreen_num, dstouchkeylabels, touchScreenKeyMap, touchScreenJoyMap);
+    populatePage(touch_widget, ds_touch_key_labels, touchScreenKeyMap, touchScreenJoyMap);
     main_layout->addWidget(touch_widget);
 
     ui->tabTouchScreen->setLayout(main_layout);
 }
 
-void InputConfigDialog::populatePage(QWidget* page, int num, const char** labels, int* keymap, int* joymap)
+void InputConfigDialog::setupCommandMenuPage()
+{
+    QVBoxLayout* main_layout = new QVBoxLayout();
+
+    QWidget* cmd_menu_widget = new QWidget();
+    populatePage(cmd_menu_widget, cmd_menu_labels, cmdMenuKeyMap, cmdMenuJoyMap);
+    main_layout->addWidget(cmd_menu_widget);
+
+    ui->tabCommandMenu->setLayout(main_layout);
+}
+
+void InputConfigDialog::populatePage(QWidget* page,
+    const std::initializer_list<const char*>& labels,
+    int* keymap, int* joymap)
 {
     // kind of a hack
     bool ishotkey = (page != ui->tabInput);
@@ -198,15 +179,17 @@ void InputConfigDialog::populatePage(QWidget* page, int num, const char** labels
     main_layout->addWidget(group);
     group_layout = new QGridLayout();
     group_layout->setSpacing(1);
-    for (int i = 0; i < num; i++)
+    int i = 0;
+    for (const char* labelStr : labels)
     {
-        QLabel* label = new QLabel(QString(labels[i])+":");
+        QLabel* label = new QLabel(QString(labelStr)+":");
         KeyMapButton* btn = new KeyMapButton(&keymap[i], ishotkey);
 
         group_layout->addWidget(label, i, 0);
         group_layout->addWidget(btn, i, 1);
+        i++;
     }
-    group_layout->setRowStretch(num, 1);
+    group_layout->setRowStretch(labels.size(), 1);
     group->setLayout(group_layout);
     group->setMinimumWidth(275);
 
@@ -214,15 +197,17 @@ void InputConfigDialog::populatePage(QWidget* page, int num, const char** labels
     main_layout->addWidget(group);
     group_layout = new QGridLayout();
     group_layout->setSpacing(1);
-    for (int i = 0; i < num; i++)
+    i = 0;
+    for (const char* labelStr : labels)
     {
-        QLabel* label = new QLabel(QString(labels[i])+":");
+        QLabel* label = new QLabel(QString(labelStr)+":");
         JoyMapButton* btn = new JoyMapButton(&joymap[i], ishotkey);
 
         group_layout->addWidget(label, i, 0);
         group_layout->addWidget(btn, i, 1);
+        i++;
     }
-    group_layout->setRowStretch(num, 1);
+    group_layout->setRowStretch(labels.size(), 1);
     group->setLayout(group_layout);
     group->setMinimumWidth(275);
 
@@ -237,22 +222,32 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
         Config::JoyMapping[dskeyorder[i]] = keypadJoyMap[i];
     }
 
-    for (int i = 0; i < hk_addons_num; i++)
+    int i = 0;
+    for (int hotkey : hk_addons)
     {
-        Config::HKKeyMapping[hk_addons[i]] = addonsKeyMap[i];
-        Config::HKJoyMapping[hk_addons[i]] = addonsJoyMap[i];
+        Config::HKKeyMapping[hotkey] = addonsKeyMap[i];
+        Config::HKJoyMapping[hotkey] = addonsJoyMap[i];
+        i++;
     }
 
-    for (int i = 0; i < hk_general_num; i++)
+    i = 0;
+    for (int hotkey : hk_general)
     {
-        Config::HKKeyMapping[hk_general[i]] = hkGeneralKeyMap[i];
-        Config::HKJoyMapping[hk_general[i]] = hkGeneralJoyMap[i];
+        Config::HKKeyMapping[hotkey] = hkGeneralKeyMap[i];
+        Config::HKJoyMapping[hotkey] = hkGeneralJoyMap[i];
+        i++;
     }
 
     for (int i = 0; i < touchscreen_num; i++)
     {
         Config::TouchKeyMapping[dstouchkeyorder[i]] = touchScreenKeyMap[i];
         Config::TouchJoyMapping[dstouchkeyorder[i]] = touchScreenJoyMap[i];
+    }
+
+    for (int i = 0; i < cmdmenu_num; i++)
+    {
+        Config::CmdMenuKeyMapping[dscmdmenukeyorder[i]] = cmdMenuKeyMap[i];
+        Config::CmdMenuJoyMapping[dscmdmenukeyorder[i]] = cmdMenuJoyMap[i];
     }
 
     Config::JoystickID = Input::JoystickID;

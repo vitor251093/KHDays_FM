@@ -16,6 +16,7 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
+#include <locale>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -34,6 +35,9 @@ int HKJoyMapping[HK_MAX];
 
 int TouchKeyMapping[4];
 int TouchJoyMapping[4];
+
+int CmdMenuKeyMapping[4];
+int CmdMenuJoyMapping[4];
 
 int JoystickID;
 
@@ -121,10 +125,12 @@ bool SavestateRelocSRAM;
 int AudioInterp;
 int AudioBitrate;
 int AudioVolume;
+bool DSiVolumeSync;
 int MicInputType;
 std::string MicWavPath;
 
 std::string LastROMFolder;
+std::string LastBIOSFolder;
 
 std::string RecentROMList[10];
 
@@ -148,6 +154,24 @@ CameraConfig Camera[2];
 
 const char* kConfigFile = "melonDS.ini";
 const char* kUniqueConfigFile = "melonDS.%d.ini";
+
+int getLocaleIndex() {
+    int localIndex = 1;
+    std::string userlocale = std::locale("").name().substr(0, 2);
+    if (userlocale == "ja")
+        localIndex = 0;
+    else if (userlocale == "en")
+        localIndex = 1;
+    else if (userlocale == "fr")
+        localIndex = 2;
+    else if (userlocale == "de")
+        localIndex = 3;
+    else if (userlocale == "it")
+        localIndex = 4;
+    else if (userlocale == "es")
+        localIndex = 5;
+    return localIndex;
+}
 
 ConfigEntry ConfigFile[] =
 {
@@ -185,9 +209,13 @@ ConfigEntry ConfigFile[] =
     {"HKKey_FastForwardToggle",   0, &HKKeyMapping[HK_FastForwardToggle],   -1, true},
     {"HKKey_FullscreenToggle",    0, &HKKeyMapping[HK_FullscreenToggle],    -1, true},
     {"HKKey_SwapScreens",         0, &HKKeyMapping[HK_SwapScreens],         -1, true},
+    {"HKKey_SwapScreenEmphasis",  0, &HKKeyMapping[HK_SwapScreenEmphasis],  -1, true},
     {"HKKey_SolarSensorDecrease", 0, &HKKeyMapping[HK_SolarSensorDecrease], -1, true},
     {"HKKey_SolarSensorIncrease", 0, &HKKeyMapping[HK_SolarSensorIncrease], -1, true},
     {"HKKey_FrameStep",           0, &HKKeyMapping[HK_FrameStep],           -1, true},
+    {"HKKey_PowerButton",         0, &HKKeyMapping[HK_PowerButton],         -1, true},
+    {"HKKey_VolumeUp",            0, &HKKeyMapping[HK_VolumeUp],            -1, true},
+    {"HKKey_VolumeDown",          0, &HKKeyMapping[HK_VolumeDown],          -1, true},
 
     {"HKJoy_Lid",                 0, &HKJoyMapping[HK_Lid],                 -1, true},
     {"HKJoy_Mic",                 0, &HKJoyMapping[HK_Mic],                 -1, true},
@@ -197,9 +225,13 @@ ConfigEntry ConfigFile[] =
     {"HKJoy_FastForwardToggle",   0, &HKJoyMapping[HK_FastForwardToggle],   -1, true},
     {"HKJoy_FullscreenToggle",    0, &HKJoyMapping[HK_FullscreenToggle],    -1, true},
     {"HKJoy_SwapScreens",         0, &HKJoyMapping[HK_SwapScreens],         -1, true},
+    {"HKJoy_SwapScreenEmphasis",  0, &HKJoyMapping[HK_SwapScreenEmphasis],  -1, true},
     {"HKJoy_SolarSensorDecrease", 0, &HKJoyMapping[HK_SolarSensorDecrease], -1, true},
     {"HKJoy_SolarSensorIncrease", 0, &HKJoyMapping[HK_SolarSensorIncrease], -1, true},
     {"HKJoy_FrameStep",           0, &HKJoyMapping[HK_FrameStep],           -1, true},
+    {"HKJoy_PowerButton",         0, &HKJoyMapping[HK_PowerButton],         -1, true},
+    {"HKJoy_VolumeUp",            0, &HKJoyMapping[HK_VolumeUp],            -1, true},
+    {"HKJoy_VolumeDown",          0, &HKJoyMapping[HK_VolumeDown],          -1, true},
 
     {"Key_TouchRight", 0, &TouchKeyMapping[0], -1, true},
     {"Key_TouchLeft",  0, &TouchKeyMapping[1], -1, true},
@@ -211,6 +243,16 @@ ConfigEntry ConfigFile[] =
     {"Joy_TouchUp",    0, &TouchJoyMapping[2], -1, true},
     {"Joy_TouchDown",  0, &TouchJoyMapping[3], -1, true},
 
+    {"Key_CmdMenuLeft",  0, &CmdMenuKeyMapping[0], -1, true},
+    {"Key_CmdMenuRight", 0, &CmdMenuKeyMapping[1], -1, true},
+    {"Key_CmdMenuUp",    0, &CmdMenuKeyMapping[2], -1, true},
+    {"Key_CmdMenuDown",  0, &CmdMenuKeyMapping[3], -1, true},
+
+    {"Joy_CmdMenuLeft",  0, &CmdMenuJoyMapping[0], -1, true},
+    {"Joy_CmdMenuRight", 0, &CmdMenuJoyMapping[1], -1, true},
+    {"Joy_CmdMenuUp",    0, &CmdMenuJoyMapping[2], -1, true},
+    {"Joy_CmdMenuDown",  0, &CmdMenuJoyMapping[3], -1, true},
+
     {"JoystickID", 0, &JoystickID, 0, true},
 
     {"WindowWidth",  0, &WindowWidth,  256, true},
@@ -221,13 +263,13 @@ ConfigEntry ConfigFile[] =
     {"ScreenGap",      0, &ScreenGap,      0,     true},
     {"ScreenLayout",   0, &ScreenLayout,   2,     true},
     {"ScreenSwap",     1, &ScreenSwap,     false, true},
-    {"ScreenSizing",   0, &ScreenSizing,   0,     true},
+    {"ScreenSizing",   0, &ScreenSizing,   3,     true},
     {"IntegerScaling", 1, &IntegerScaling, false, true},
-    {"ScreenAspectTop",0, &ScreenAspectTop,1,     true},
+    {"ScreenAspectTop",0, &ScreenAspectTop,3,     true},
     {"ScreenAspectBot",0, &ScreenAspectBot,0,     true},
     {"ScreenFilter",   1, &ScreenFilter,   true,  true},
 
-    {"ScreenUseGL",         1, &ScreenUseGL,         true,  false},
+    {"ScreenUseGL",         1, &ScreenUseGL,         false, false},
     {"ScreenVSync",         1, &ScreenVSync,         false, false},
     {"ScreenVSyncInterval", 0, &ScreenVSyncInterval, 1,     false},
 
@@ -283,7 +325,7 @@ ConfigEntry ConfigFile[] =
 
     {"FirmwareOverrideSettings", 1, &FirmwareOverrideSettings, false, true},
     {"FirmwareUsername", 2, &FirmwareUsername, (std::string)"melonDS", true},
-    {"FirmwareLanguage", 0, &FirmwareLanguage, 1, true},
+    {"FirmwareLanguage", 0, &FirmwareLanguage, getLocaleIndex(), true},
     {"FirmwareBirthdayMonth", 0, &FirmwareBirthdayMonth, 1, true},
     {"FirmwareBirthdayDay", 0, &FirmwareBirthdayDay, 1, true},
     {"FirmwareFavouriteColour", 0, &FirmwareFavouriteColour, 0, true},
@@ -301,12 +343,14 @@ ConfigEntry ConfigFile[] =
     {"AudioInterp", 0, &AudioInterp, 0, false},
     {"AudioBitrate", 0, &AudioBitrate, 0, false},
     {"AudioVolume", 0, &AudioVolume, 256, true},
+    {"DSiVolumeSync", 0, &DSiVolumeSync, 0, true},
     {"MicInputType", 0, &MicInputType, 1, false},
     {"MicWavPath", 2, &MicWavPath, (std::string)"", false},
 
-    {"LastROMFolder", 2, &LastROMFolder, (std::string)"", true},
+    {"LastROMFolder", 2, &LastROMFolder, (std::string)"rom", true},
+    {"LastBIOSFolder", 2, &LastBIOSFolder, (std::string)"", true},
 
-    {"RecentROM_0", 2, &RecentROMList[0], (std::string)"", true},
+    {"RecentROM_0", 2, &RecentROMList[0], (std::string)"rom/game.nds", true},
     {"RecentROM_1", 2, &RecentROMList[1], (std::string)"", true},
     {"RecentROM_2", 2, &RecentROMList[2], (std::string)"", true},
     {"RecentROM_3", 2, &RecentROMList[3], (std::string)"", true},
@@ -321,9 +365,9 @@ ConfigEntry ConfigFile[] =
     {"SavestatePath", 2, &SavestatePath, (std::string)"", true},
     {"CheatFilePath", 2, &CheatFilePath, (std::string)"", true},
 
-    {"EnableCheats", 1, &EnableCheats, false, true},
+    {"EnableCheats", 1, &EnableCheats, true, true},
 
-    {"MouseHide",        1, &MouseHide,        false, false},
+    {"MouseHide",        1, &MouseHide,        true, false},
     {"MouseHideSeconds", 0, &MouseHideSeconds, 2, false},
     {"PauseLostFocus",   1, &PauseLostFocus,   false, false},
 

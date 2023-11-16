@@ -73,6 +73,7 @@
 #include "RAMInfoDialog.h"
 #include "TitleManagerDialog.h"
 #include "PowerManagement/PowerManagementDialog.h"
+#include "AudioInOut.h"
 
 #include "types.h"
 #include "version.h"
@@ -89,6 +90,7 @@
 #include "Platform.h"
 #include "LocalMP.h"
 #include "Config.h"
+#include "DSi_I2C.h"
 
 #include "Savestate.h"
 
@@ -149,7 +151,7 @@ const QStringList ArchiveExtensions
     ".tar.lz",
     ".tar.lzma", ".tlz",
     ".tar.lrz", ".tlrz",
-    ".tar.lzo", ".tzo",
+    ".tar.lzo", ".tzo"
 #endif
 };
 
@@ -166,257 +168,14 @@ int videoRenderer;
 GPU::RenderSettings videoSettings;
 bool videoSettingsDirty;
 
-SDL_AudioDeviceID audioDevice;
-int audioFreq;
-bool audioMuted;
-SDL_cond* audioSync;
-SDL_mutex* audioSyncLock;
-
-SDL_AudioDeviceID micDevice;
-s16 micExtBuffer[2048];
-u32 micExtBufferWritePos;
-
-u32 micWavLength;
-s16* micWavBuffer;
-
 CameraManager* camManager[2];
 bool camStarted[2];
 
 float backgroundRed = 0.0;
 float backgroundGreen = 0.0;
 float backgroundBlue = 0.0;
+bool isBlackTopScreen = false;
 bool isBlackBottomScreen = false;
-
-const struct { int id; float ratio; const char* label; } aspectRatios[] =
-{
-    { 0, 1,                       "4:3 (native)" },
-    { 4, (5.f  / 3) / (4.f / 3), "5:3 (3DS)"},
-    { 1, (16.f / 9) / (4.f / 3),  "16:9" },
-    { 2, (21.f / 9) / (4.f / 3),  "21:9" },
-    { 3, 0,                       "window" }
-};
-
-void micCallback(void* data, Uint8* stream, int len);
-
-
-
-void audioCallback(void* data, Uint8* stream, int len)
-{
-    len /= (sizeof(s16) * 2);
-
-    // resample incoming audio to match the output sample rate
-
-    int len_in = Frontend::AudioOut_GetNumSamples(len);
-    s16 buf_in[1024*2];
-    int num_in;
-
-    SDL_LockMutex(audioSyncLock);
-    num_in = SPU::ReadOutput(buf_in, len_in);
-    SDL_CondSignal(audioSync);
-    SDL_UnlockMutex(audioSyncLock);
-
-    if ((num_in < 1) || audioMuted)
-    {
-        memset(stream, 0, len*sizeof(s16)*2);
-        return;
-    }
-
-    int margin = 6;
-    if (num_in < len_in-margin)
-    {
-        int last = num_in-1;
-
-        for (int i = num_in; i < len_in-margin; i++)
-            ((u32*)buf_in)[i] = ((u32*)buf_in)[last];
-
-        num_in = len_in-margin;
-    }
-
-    Frontend::AudioOut_Resample(buf_in, num_in, (s16*)stream, len, Config::AudioVolume);
-}
-
-void audioMute()
-{
-    int inst = Platform::InstanceID();
-    audioMuted = false;
-
-    switch (Config::MPAudioMode)
-    {
-    case 1: // only instance 1
-        if (inst > 0) audioMuted = true;
-        break;
-
-    case 2: // only currently focused instance
-        if (mainWindow != nullptr)
-            audioMuted = !mainWindow->isActiveWindow();
-        break;
-    }
-}
-
-
-void micOpen()
-{
-    if (Config::MicInputType != 1)
-    {
-        micDevice = 0;
-        return;
-    }
-
-    SDL_AudioSpec whatIwant, whatIget;
-    memset(&whatIwant, 0, sizeof(SDL_AudioSpec));
-    whatIwant.freq = 44100;
-    whatIwant.format = AUDIO_S16LSB;
-    whatIwant.channels = 1;
-    whatIwant.samples = 1024;
-    whatIwant.callback = micCallback;
-    micDevice = SDL_OpenAudioDevice(NULL, 1, &whatIwant, &whatIget, 0);
-    if (!micDevice)
-    {
-        printf("Mic init failed: %s\n", SDL_GetError());
-    }
-    else
-    {
-        SDL_PauseAudioDevice(micDevice, 0);
-    }
-}
-
-void micClose()
-{
-    if (micDevice)
-        SDL_CloseAudioDevice(micDevice);
-
-    micDevice = 0;
-}
-
-void micLoadWav(std::string name)
-{
-    SDL_AudioSpec format;
-    memset(&format, 0, sizeof(SDL_AudioSpec));
-
-    if (micWavBuffer) delete[] micWavBuffer;
-    micWavBuffer = nullptr;
-    micWavLength = 0;
-
-    u8* buf;
-    u32 len;
-    if (!SDL_LoadWAV(name.c_str(), &format, &buf, &len))
-        return;
-
-    const u64 dstfreq = 44100;
-
-    int srcinc = format.channels;
-    len /= ((SDL_AUDIO_BITSIZE(format.format) / 8) * srcinc);
-
-    micWavLength = (len * dstfreq) / format.freq;
-    if (micWavLength < 735) micWavLength = 735;
-    micWavBuffer = new s16[micWavLength];
-
-    float res_incr = len / (float)micWavLength;
-    float res_timer = 0;
-    int res_pos = 0;
-
-    for (int i = 0; i < micWavLength; i++)
-    {
-        u16 val = 0;
-
-        switch (SDL_AUDIO_BITSIZE(format.format))
-        {
-        case 8:
-            val = buf[res_pos] << 8;
-            break;
-
-        case 16:
-            if (SDL_AUDIO_ISBIGENDIAN(format.format))
-                val = (buf[res_pos*2] << 8) | buf[res_pos*2 + 1];
-            else
-                val = (buf[res_pos*2 + 1] << 8) | buf[res_pos*2];
-            break;
-
-        case 32:
-            if (SDL_AUDIO_ISFLOAT(format.format))
-            {
-                u32 rawval;
-                if (SDL_AUDIO_ISBIGENDIAN(format.format))
-                    rawval = (buf[res_pos*4] << 24) | (buf[res_pos*4 + 1] << 16) | (buf[res_pos*4 + 2] << 8) | buf[res_pos*4 + 3];
-                else
-                    rawval = (buf[res_pos*4 + 3] << 24) | (buf[res_pos*4 + 2] << 16) | (buf[res_pos*4 + 1] << 8) | buf[res_pos*4];
-
-                float fval = *(float*)&rawval;
-                s32 ival = (s32)(fval * 0x8000);
-                ival = std::clamp(ival, -0x8000, 0x7FFF);
-                val = (s16)ival;
-            }
-            else if (SDL_AUDIO_ISBIGENDIAN(format.format))
-                val = (buf[res_pos*4] << 8) | buf[res_pos*4 + 1];
-            else
-                val = (buf[res_pos*4 + 3] << 8) | buf[res_pos*4 + 2];
-            break;
-        }
-
-        if (SDL_AUDIO_ISUNSIGNED(format.format))
-            val ^= 0x8000;
-
-        micWavBuffer[i] = val;
-
-        res_timer += res_incr;
-        while (res_timer >= 1.0)
-        {
-            res_timer -= 1.0;
-            res_pos += srcinc;
-        }
-    }
-
-    SDL_FreeWAV(buf);
-}
-
-void micCallback(void* data, Uint8* stream, int len)
-{
-    s16* input = (s16*)stream;
-    len /= sizeof(s16);
-
-    int maxlen = sizeof(micExtBuffer) / sizeof(s16);
-
-    if ((micExtBufferWritePos + len) > maxlen)
-    {
-        u32 len1 = maxlen - micExtBufferWritePos;
-        memcpy(&micExtBuffer[micExtBufferWritePos], &input[0], len1*sizeof(s16));
-        memcpy(&micExtBuffer[0], &input[len1], (len - len1)*sizeof(s16));
-        micExtBufferWritePos = len - len1;
-    }
-    else
-    {
-        memcpy(&micExtBuffer[micExtBufferWritePos], input, len*sizeof(s16));
-        micExtBufferWritePos += len;
-    }
-}
-
-void micProcess()
-{
-    int type = Config::MicInputType;
-    bool cmd = Input::HotkeyDown(HK_Mic);
-
-    if (type != 1 && !cmd)
-    {
-        type = 0;
-    }
-
-    switch (type)
-    {
-    case 0: // no mic
-        Frontend::Mic_FeedSilence();
-        break;
-
-    case 1: // host mic
-    case 3: // WAV
-        Frontend::Mic_FeedExternalBuffer();
-        break;
-
-    case 2: // white noise
-        Frontend::Mic_FeedNoise();
-        break;
-    }
-}
-
 
 EmuThread::EmuThread(QObject* parent) : QThread(parent)
 {
@@ -436,6 +195,7 @@ EmuThread::EmuThread(QObject* parent) : QThread(parent)
     connect(this, SIGNAL(screenLayoutChange()), mainWindow->panelWidget, SLOT(onScreenLayoutChanged()));
     connect(this, SIGNAL(windowFullscreenToggle()), mainWindow, SLOT(onFullscreenToggled()));
     connect(this, SIGNAL(swapScreensToggle()), mainWindow->actScreenSwap, SLOT(trigger()));
+    connect(this, SIGNAL(screenEmphasisToggle()), mainWindow, SLOT(onScreenEmphasisToggled()));
 
     static_cast<ScreenPanelGL*>(mainWindow->panel)->transferLayout(this);
 }
@@ -589,6 +349,7 @@ void EmuThread::run()
     double lastMeasureTime = lastTime;
 
     u32 winUpdateCount = 0, winUpdateFreq = 1;
+    u8 dsiVolumeLevel = 0x1F;
 
     char melontitle[100];
 
@@ -605,6 +366,7 @@ void EmuThread::run()
         if (Input::HotkeyPressed(HK_FullscreenToggle)) emit windowFullscreenToggle();
 
         if (Input::HotkeyPressed(HK_SwapScreens)) emit swapScreensToggle();
+        if (Input::HotkeyPressed(HK_SwapScreenEmphasis)) emit screenEmphasisToggle();
 
         if (Input::HotkeyPressed(HK_SolarSensorDecrease))
         {
@@ -625,6 +387,42 @@ void EmuThread::run()
                 sprintf(msg, "Solar sensor level: %d", level);
                 OSD::AddMessage(0, msg);
             }
+        }
+
+        if (NDS::ConsoleType == 1)
+        {
+            double currentTime = SDL_GetPerformanceCounter() * perfCountsSec;
+
+            // Handle power button
+            if (Input::HotkeyDown(HK_PowerButton))
+            {
+                DSi_BPTWL::SetPowerButtonHeld(currentTime);
+            }
+            else if (Input::HotkeyReleased(HK_PowerButton))
+            {
+                DSi_BPTWL::SetPowerButtonReleased(currentTime);
+            }
+
+            // Handle volume buttons
+            if (Input::HotkeyDown(HK_VolumeUp))
+            {
+                DSi_BPTWL::SetVolumeSwitchHeld(DSi_BPTWL::volumeKey_Up);
+            }
+            else if (Input::HotkeyReleased(HK_VolumeUp))
+            {
+                DSi_BPTWL::SetVolumeSwitchReleased(DSi_BPTWL::volumeKey_Up);
+            }
+
+            if (Input::HotkeyDown(HK_VolumeDown))
+            {
+                DSi_BPTWL::SetVolumeSwitchHeld(DSi_BPTWL::volumeKey_Down);
+            }
+            else if (Input::HotkeyReleased(HK_VolumeDown))
+            {
+                DSi_BPTWL::SetVolumeSwitchReleased(DSi_BPTWL::volumeKey_Down);
+            }
+
+            DSi_BPTWL::ProcessVolumeSwitchInput(currentTime);
         }
 
         if (EmuRunning == 1 || EmuRunning == 3)
@@ -662,7 +460,30 @@ void EmuThread::run()
             }
 
             // process input and hotkeys
-            NDS::SetKeyMask(Input::InputMask);
+            u32 InputMask = Input::InputMask;
+            u32 CmdMenuInputMask = Input::CmdMenuInputMask, PriorCmdMenuInputMask = Input::PriorPriorCmdMenuInputMask;
+            if (videoSettings.GameScene == gameScene_InGameWithMap || videoSettings.GameScene == gameScene_InGameWithoutMap) {
+                // Workaround, so the arrow keys can be used to control the command menu
+                if (CmdMenuInputMask & (1 << 1)) { // left
+                    InputMask &= ~(1<<1);
+                }
+                if (CmdMenuInputMask & (1 << 0)) { // right
+                    InputMask &= ~(1<<0);
+                }
+                if (CmdMenuInputMask & ((1 << 2) | (1 << 3))) {
+                    InputMask &= ~(1<<10);
+                    if (CmdMenuInputMask & (1 << 2)) {
+                        // If you press the up arrow while having the player moving priorly, it may make it go down instead
+                        InputMask |= (1<<6);
+                        InputMask |= (1<<7);
+                    }
+                    if (PriorCmdMenuInputMask & (1 << 2)) // up
+                        InputMask &= ~(1<<6);
+                    if (PriorCmdMenuInputMask & (1 << 3)) // down
+                        InputMask &= ~(1<<7);
+                }
+            }
+            NDS::SetKeyMask(InputMask);
             NDS::SetTouchKeyMask(Input::TouchInputMask);
 
             if (Input::HotkeyPressed(HK_Lid))
@@ -673,7 +494,7 @@ void EmuThread::run()
             }
 
             // microphone input
-            micProcess();
+            AudioInOut::MicProcess();
 
             // auto screen layout
             if (Config::ScreenSizing == screenSizing_Auto)
@@ -727,16 +548,20 @@ void EmuThread::run()
                 oglContext->SetSwapInterval(0);
             }
 
-            if (Config::AudioSync && !fastforward && audioDevice)
+            if (Config::DSiVolumeSync && NDS::ConsoleType == 1)
             {
-                SDL_LockMutex(audioSyncLock);
-                while (SPU::GetOutputSize() > 1024)
+                u8 volumeLevel = DSi_BPTWL::GetVolumeLevel();
+                if (volumeLevel != dsiVolumeLevel)
                 {
-                    int ret = SDL_CondWaitTimeout(audioSync, audioSyncLock, 500);
-                    if (ret == SDL_MUTEX_TIMEDOUT) break;
+                    dsiVolumeLevel = volumeLevel;
+                    emit syncVolumeLevel();
                 }
-                SDL_UnlockMutex(audioSyncLock);
+
+                Config::AudioVolume = volumeLevel * (256.0 / 31.0);
             }
+
+            if (Config::AudioSync && !fastforward)
+                AudioInOut::AudioSync();
 
             double frametimeStep = nlines / (60.0 * 263.0);
 
@@ -782,9 +607,9 @@ void EmuThread::run()
 
                 int inst = Platform::InstanceID();
                 if (inst == 0)
-                    sprintf(melontitle, "[%d/%.0f] melonDS " MELONDS_VERSION, fps, fpstarget);
+                    sprintf(melontitle, "[%d/%.0f] khDaysMM " KHDAYSMM_VERSION, fps, fpstarget);
                 else
-                    sprintf(melontitle, "[%d/%.0f] melonDS (%d)", fps, fpstarget, inst+1);
+                    sprintf(melontitle, "[%d/%.0f] khDaysMM (%d)", fps, fpstarget, inst+1);
                 changeWindowTitle(melontitle);
             }
         }
@@ -801,9 +626,9 @@ void EmuThread::run()
 
             int inst = Platform::InstanceID();
             if (inst == 0)
-                sprintf(melontitle, "melonDS " MELONDS_VERSION);
+                sprintf(melontitle, "khDaysMM " KHDAYSMM_VERSION);
             else
-                sprintf(melontitle, "melonDS (%d)", inst+1);
+                sprintf(melontitle, "khDaysMM (%d)", inst+1);
             changeWindowTitle(melontitle);
 
             SDL_Delay(75);
@@ -842,8 +667,14 @@ bool EmuThread::setGameScene(int newGameScene)
     float backgroundColor = 0.0;
     if (newGameScene == gameScene_Intro)
     {
-        backgroundColor = PARSE_BRIGHTNESS_FOR_WHITE_BACKGROUND(GPU::GPU2D_A.MasterBrightness) / 15.0;
-        backgroundColor = (sqrt(backgroundColor)*3 + pow(backgroundColor, 2)) / 4;
+        if (isBlackBottomScreen && isBlackTopScreen)
+        {
+            backgroundColor = 0;
+        }
+        else {
+            backgroundColor = PARSE_BRIGHTNESS_FOR_WHITE_BACKGROUND(GPU::GPU2D_A.MasterBrightness) / 15.0;
+            backgroundColor = (sqrt(backgroundColor)*3 + pow(backgroundColor, 2)) / 4;
+        }
     }
     if (newGameScene == gameScene_MainMenu)
     {
@@ -868,24 +699,46 @@ bool EmuThread::setGameScene(int newGameScene)
     debugLogs(newGameScene);
 #endif
 
-    if (videoSettings.GameScene == newGameScene) 
+    if (videoSettings.GameScene != newGameScene) 
     {
-        return false;
-    }
+#ifdef _DEBUG
+        switch (newGameScene) {
+            case gameScene_Intro: OSD::AddMessage(0, "Game scene: Intro"); break;
+            case gameScene_MainMenu: OSD::AddMessage(0, "Game scene: Main menu"); break;
+            case gameScene_IntroLoadMenu: OSD::AddMessage(0, "Game scene: Intro load menu"); break;
+            case gameScene_DayCounter: OSD::AddMessage(0, "Game scene: Day counter"); break;
+            case gameScene_Cutscene: OSD::AddMessage(0, "Game scene: Cutscene"); break;
+            case gameScene_BottomCutscene: OSD::AddMessage(0, "Game scene: Cutscene (Bottom screen)"); break;
+            case gameScene_InGameWithMap: OSD::AddMessage(0, "Game scene: Ingame (with minimap)"); break;
+            case gameScene_InGameWithoutMap: OSD::AddMessage(0, "Game scene: Ingame (without minimap)"); break;
+            case gameScene_InGameMenu: OSD::AddMessage(0, "Game scene: Ingame menu"); break;
+            case gameScene_InGameSaveMenu: OSD::AddMessage(0, "Game scene: Ingame save menu"); break;
+            case gameScene_InHoloMissionMenu: OSD::AddMessage(0, "Game scene: Holo mission menu"); break;
+            case gameScene_PauseMenu: OSD::AddMessage(0, "Game scene: Pause menu"); break;
+            case gameScene_PauseMenuWithGauge: OSD::AddMessage(0, "Game scene: Pause menu (with gauge)"); break;
+            case gameScene_Tutorial: OSD::AddMessage(0, "Game scene: Tutorial"); break;
+            case gameScene_RoxasThoughts: OSD::AddMessage(0, "Game scene: Roxas thoughts"); break;
+            case gameScene_Shop: OSD::AddMessage(0, "Game scene: Shop"); break;
+            case gameScene_BlackScreen: OSD::AddMessage(0, "Game scene: Black screen"); break;
+            case gameScene_Other2D: OSD::AddMessage(0, "Game scene: Unknown (2D)"); break;
+            default: OSD::AddMessage(0, "Game scene: Unknown (3D)"); break;
+        }
+#endif
 
-    // Game scene
-    priorGameScene = videoSettings.GameScene;
-    videoSettings.GameScene = newGameScene;
+        // Game scene
+        priorGameScene = videoSettings.GameScene;
+        videoSettings.GameScene = newGameScene;
+    }
 
     // Screens position and size
     int size = screenSizing_Even;
     switch (newGameScene) {
         case gameScene_Intro: break;
         case gameScene_MainMenu: break;
-        case gameScene_IntroSaveMenu: size = screenSizing_BotOnly; break;
-        case gameScene_IntroCutscene: break;
+        case gameScene_IntroLoadMenu: size = screenSizing_BotOnly; break;
         case gameScene_DayCounter: size = screenSizing_TopOnly; break;
-        case gameScene_Cutscene: size = screenSizing_TopOnly; break;
+        case gameScene_Cutscene: size = isBlackBottomScreen ? screenSizing_TopOnly : size; break;
+        case gameScene_BottomCutscene: size = screenSizing_BotOnly; break;
         case gameScene_InGameWithMap: size = screenSizing_MiniMap; break;
         case gameScene_InGameWithoutMap: size = screenSizing_TopOnly; break;
         case gameScene_InGameMenu: break;
@@ -895,13 +748,12 @@ bool EmuThread::setGameScene(int newGameScene)
         case gameScene_PauseMenuWithGauge: size = screenSizing_PauseMenuWithGauge; break;
         case gameScene_Tutorial: size = screenSizing_BotOnly; break;
         case gameScene_RoxasThoughts: size = screenSizing_TopOnly; break;
+        case gameScene_Shop: break;
+        case gameScene_BlackScreen: size = screenSizing_TopOnly; break;
         default: break;
     }
     autoScreenSizing = size;
     Config::ScreenSwap = (newGameScene == gameScene_Intro || newGameScene == gameScene_MainMenu) ? 1 : 0;
-    Config::ScreenAspectTop = (size == screenSizing_Even) ? 0 : 4; // 4:3 / window size
-
-    videoSettingsDirty = true;
 
     return true;
 }
@@ -909,6 +761,8 @@ bool EmuThread::setGameScene(int newGameScene)
 void EmuThread::debugLogs(int gameScene)
 {
     printf("Game scene: %d\n", gameScene);
+    printf("isBlackTopScreen: %d\n", isBlackTopScreen);
+    printf("isBlackBottomScreen: %d\n", isBlackBottomScreen);
     printf("GPU3D::NumVertices: %d\n",       GPU3D::NumVertices);
     printf("GPU3D::NumPolygons: %d\n",       GPU3D::NumPolygons);
     printf("GPU3D::RenderNumPolygons: %d\n", GPU3D::RenderNumPolygons);
@@ -928,6 +782,9 @@ void EmuThread::debugLogs(int gameScene)
     printf("\n");
 }
 
+// TODO: All conditions that involve videoSettings.GameScene should be reworked so they
+//   don't rely on it; otherwise, everything becomes a castle of cards, and save states
+//   become unreliable when it comes to screen sizing.
 bool EmuThread::refreshAutoScreenSizing()
 {
     // Also happens during intro, during the start of the mission review, on some menu screens; those seem to use real 2D elements
@@ -945,6 +802,20 @@ bool EmuThread::refreshAutoScreenSizing()
     u8 topScreenBrightness = PARSE_BRIGHTNESS_FOR_WHITE_BACKGROUND(GPU::GPU2D_A.MasterBrightness);
     u8 botScreenBrightness = PARSE_BRIGHTNESS_FOR_WHITE_BACKGROUND(GPU::GPU2D_B.MasterBrightness);
 
+    // Shop has 2D and 3D segments, which is why it's on the top
+    bool isShop = (GPU3D::RenderNumPolygons == 264 && GPU::GPU2D_A.BlendCnt == 0 && 
+                   GPU::GPU2D_B.BlendCnt == 0 && GPU::GPU2D_B.BlendAlpha == 16) ||
+            (videoSettings.GameScene == gameScene_Shop && GPU3D::NumVertices == 0 && GPU3D::NumPolygons == 0);
+    if (isShop)
+    {
+        return setGameScene(gameScene_Shop);
+    }
+
+    if (isBlackTopScreen && (NDS::PowerControl9 >> 9) == 1)
+    {
+        return setGameScene(gameScene_BlackScreen);
+    }
+
     if (doesntLook3D)
     {
         // Intro save menu
@@ -956,9 +827,9 @@ bool EmuThread::refreshAutoScreenSizing()
 
         if (isIntroSaveMenu)
         {
-            return setGameScene(gameScene_IntroSaveMenu);
+            return setGameScene(gameScene_IntroLoadMenu);
         }
-        if (videoSettings.GameScene == gameScene_IntroSaveMenu)
+        if (videoSettings.GameScene == gameScene_IntroLoadMenu)
         {
             if (mayBeMainMenu)
             {
@@ -966,13 +837,20 @@ bool EmuThread::refreshAutoScreenSizing()
             }
             if (GPU3D::NumVertices != 8)
             {
-                return setGameScene(gameScene_IntroSaveMenu);
+                return setGameScene(gameScene_IntroLoadMenu);
             }
         }
 
         if ((NDS::PowerControl9 >> 9) == 1 && videoSettings.GameScene == gameScene_InGameMenu)
         {
             return setGameScene(gameScene_InGameMenu);
+        }
+
+        // Mission Mode / Story Mode - Challenges (happens if you press L/R repeatedly)
+        bool inHoloMissionMenu = GPU::GPU2D_A.BlendCnt == 129 && GPU::GPU2D_B.BlendCnt == 159;
+        if (inHoloMissionMenu)
+        {
+            return setGameScene(gameScene_InHoloMissionMenu);
         }
 
         // Day counter
@@ -992,12 +870,6 @@ bool EmuThread::refreshAutoScreenSizing()
             }
         }
 
-        // Cutscene
-        if (videoSettings.GameScene == gameScene_Cutscene && no3D)
-        {
-            return setGameScene(gameScene_Cutscene);
-        }
-
         // Main menu
         if (mayBeMainMenu)
         {
@@ -1010,17 +882,26 @@ bool EmuThread::refreshAutoScreenSizing()
             return setGameScene(gameScene_Intro);
         }
 
+        if (isBlackTopScreen && isBlackBottomScreen)
+        {
+            return setGameScene(gameScene_BlackScreen);
+        }
+
         // Intro cutscene
-        if (videoSettings.GameScene == gameScene_IntroCutscene)
+        if (videoSettings.GameScene == gameScene_Cutscene)
         {
             if (GPU3D::NumVertices == 0 && GPU3D::NumPolygons == 0 && GPU3D::RenderNumPolygons >= 0 && GPU3D::RenderNumPolygons <= 3)
             {
-                return setGameScene(gameScene_IntroCutscene);
+                return setGameScene(gameScene_Cutscene);
             }
         }
         if (videoSettings.GameScene == gameScene_MainMenu && GPU3D::NumVertices == 0 && GPU3D::NumPolygons == 0 && GPU3D::RenderNumPolygons == 1)
         {
-            return setGameScene(gameScene_IntroCutscene);
+            return setGameScene(gameScene_Cutscene);
+        }
+        if (videoSettings.GameScene == gameScene_BlackScreen && GPU3D::NumVertices == 0 && GPU3D::NumPolygons == 0 && GPU3D::RenderNumPolygons >= 0 && GPU3D::RenderNumPolygons <= 3)
+        {
+            return setGameScene(gameScene_Cutscene);
         }
 
         // In Game Save Menu
@@ -1041,7 +922,28 @@ bool EmuThread::refreshAutoScreenSizing()
         // Roxas thoughts scene
         if (isBlackBottomScreen)
         {
-            return setGameScene(gameScene_RoxasThoughts);
+            if (has3DOnTopScreen)
+            {
+                return setGameScene(gameScene_BlackScreen);
+            }
+            else
+            {
+                return setGameScene(gameScene_RoxasThoughts);
+            }
+        }
+
+        // Bottom cutscene
+        bool isBottomCutscene = GPU::GPU2D_A.BlendCnt == 0 && 
+             GPU::GPU2D_A.EVA == 16 && GPU::GPU2D_A.EVB == 0 && GPU::GPU2D_A.EVY == 9 &&
+             GPU::GPU2D_B.EVA == 16 && GPU::GPU2D_B.EVB == 0 && GPU::GPU2D_B.EVY == 0;
+        if (isBottomCutscene)
+        {
+            return setGameScene(gameScene_BottomCutscene);
+        }
+
+        if (videoSettings.GameScene == gameScene_BlackScreen)
+        {
+            return setGameScene(gameScene_BlackScreen);
         }
 
         // Unknown 2D
@@ -1079,6 +981,12 @@ bool EmuThread::refreshAutoScreenSizing()
         {
             return setGameScene(gameScene_Tutorial);
         }
+        bool inTutorialScreenWithoutWarningOnTop = GPU::GPU2D_A.BlendCnt == 193 && GPU::GPU2D_B.BlendCnt == 172 && 
+                                                   GPU::GPU2D_B.MasterBrightness == 0 && GPU::GPU2D_B.EVY == 0;
+        if (inTutorialScreenWithoutWarningOnTop)
+        {
+            return setGameScene(gameScene_Tutorial);
+        }
 
         bool inGameMenu = (GPU3D::NumVertices > 940 || GPU3D::NumVertices == 0) &&
                           GPU3D::RenderNumPolygons > 340 && GPU3D::RenderNumPolygons < 360 &&
@@ -1088,9 +996,25 @@ bool EmuThread::refreshAutoScreenSizing()
             return setGameScene(gameScene_InGameMenu);
         }
 
-        bool inHoloMissionMenu = GPU3D::NumVertices == 344 && GPU3D::NumPolygons == 89 && GPU3D::RenderNumPolygons == 89 &&
+        // Story Mode - Normal missions
+        bool inHoloMissionMenu = ((GPU3D::NumVertices == 344 && GPU3D::NumPolygons == 89 && GPU3D::RenderNumPolygons == 89) ||
+                                  (GPU3D::NumVertices == 348 && GPU3D::NumPolygons == 90 && GPU3D::RenderNumPolygons == 90)) &&
                                  GPU::GPU2D_A.BlendCnt == 0 && GPU::GPU2D_B.BlendCnt == 0;
         if (inHoloMissionMenu || videoSettings.GameScene == gameScene_InHoloMissionMenu)
+        {
+            return setGameScene(gameScene_InHoloMissionMenu);
+        }
+
+        // Mission Mode / Story Mode - Challenges
+        inHoloMissionMenu = GPU::GPU2D_A.BlendCnt == 129 && GPU::GPU2D_B.BlendCnt == 159;
+        if (inHoloMissionMenu)
+        {
+            return setGameScene(gameScene_InHoloMissionMenu);
+        }
+
+        // I can't remember
+        inHoloMissionMenu = GPU::GPU2D_A.BlendCnt == 2625 && GPU::GPU2D_B.BlendCnt == 0;
+        if (inHoloMissionMenu)
         {
             return setGameScene(gameScene_InHoloMissionMenu);
         }
@@ -1122,8 +1046,7 @@ void EmuThread::emuRun()
 
     // checkme
     emit windowEmuStart();
-    if (audioDevice) SDL_PauseAudioDevice(audioDevice, 0);
-    micOpen();
+    AudioInOut::Enable();
 }
 
 void EmuThread::initContext()
@@ -1147,8 +1070,7 @@ void EmuThread::emuPause()
     EmuRunning = 2;
     while (EmuStatus != 2);
 
-    if (audioDevice) SDL_PauseAudioDevice(audioDevice, 1);
-    micClose();
+    AudioInOut::Disable();
 }
 
 void EmuThread::emuUnpause()
@@ -1160,8 +1082,7 @@ void EmuThread::emuUnpause()
 
     EmuRunning = PrevEmuStatus;
 
-    if (audioDevice) SDL_PauseAudioDevice(audioDevice, 0);
-    micOpen();
+    AudioInOut::Enable();
 }
 
 void EmuThread::emuStop()
@@ -1169,8 +1090,7 @@ void EmuThread::emuStop()
     EmuRunning = 0;
     EmuPause = 0;
 
-    if (audioDevice) SDL_PauseAudioDevice(audioDevice, 1);
-    micClose();
+    AudioInOut::Disable();
 }
 
 void EmuThread::emuFrameStep()
@@ -1220,6 +1140,23 @@ GLuint EmuThread::loadImageAsOpenGLTexture(const char* path, const char* format,
     return texture_id;
 }
 
+bool EmuThread::isBufferBlack(u32* buffer)
+{
+    // when the result is 'null' (filled with zeros), it's a false positive, so we need to exclude that scenario
+    bool newIsNullScreen = true;
+    bool newIsBlackScreen = true;
+    for (int i = 0; i < 192*256; i++) {
+        u32 color = buffer[i] & 0xFFFFFF;
+        newIsNullScreen = newIsNullScreen && color == 0;
+        newIsBlackScreen = newIsBlackScreen &&
+                (color == 0 || color == 0x000080 || color == 0x010000 || (buffer[i] & 0xFFFFE0) == 0x018000);
+        if (!newIsBlackScreen) {
+            break;
+        }
+    }
+    return !newIsNullScreen && newIsBlackScreen;
+}
+
 void EmuThread::drawScreenGL()
 {
     int w = windowInfo.surface_width;
@@ -1266,23 +1203,13 @@ void EmuThread::drawScreenGL()
     }
 
     // checking if bottom screen is totally black
+    u32* topBuffer = GPU::Framebuffer[frontbuf][0];
     u32* bottomBuffer = GPU::Framebuffer[frontbuf][1];
+    if (topBuffer) {
+        isBlackTopScreen = isBufferBlack(topBuffer);
+    }
     if (bottomBuffer) {
-        // when the result is 'totally black', it's a false positive, so we need to exclude that scenario
-        bool newIsTotallyBlackBottomScreen = true;
-        bool newIsBlackBottomScreen = true;
-        for (int i = 0; i < 192*256; i++) {
-            u32 color = bottomBuffer[i] & 0xFFFFFF;
-            newIsTotallyBlackBottomScreen = newIsTotallyBlackBottomScreen && color == 0;
-            newIsBlackBottomScreen = newIsBlackBottomScreen && 
-                    (color == 0 || color == 0x000080 || color == 0x010000 || (bottomBuffer[i] & 0xFFFFE0) == 0x018000);
-            if (!newIsBlackBottomScreen) {
-                break;
-            }
-        }
-        if (!newIsTotallyBlackBottomScreen) {
-            isBlackBottomScreen = newIsBlackBottomScreen;
-        }
+        isBlackBottomScreen = isBufferBlack(bottomBuffer);
     }
 
     screenSettingsLock.lock();
@@ -1308,35 +1235,43 @@ void EmuThread::drawScreenGL()
         if (shouldCropScreenLikeAMap || shouldCropScreenLikeAGauge) {
             float leftMargin = 0, topMargin = 0;
             float viewAspect;
-            float screenAspect = (float) w / h;
+            float windowAspect = (float) w / h;
+            float windowWidth = w/factor;
+            float windowHeight = h/factor;
             for (auto ratio : aspectRatios)
             {
                 if (ratio.id == Config::ScreenAspectTop)
                     viewAspect = ratio.ratio;
             }
             if (viewAspect == 0) {
-                viewAspect = screenAspect;
+                viewAspect = windowAspect;
             }
-            if (viewAspect != screenAspect) {
-                if (viewAspect > screenAspect) {
-                    topMargin = (h - w/viewAspect)/2;
+            else {
+                viewAspect *= 4.0 / 3;
+            }
+            if (viewAspect != windowAspect) {
+                if (viewAspect > windowAspect) { // window taller than view
+                    topMargin = (windowHeight - windowWidth/viewAspect)/2;
                 }
-                if (viewAspect < screenAspect) {
-                    leftMargin = (w - h*viewAspect)/2;
+                else if (viewAspect < windowAspect) { // window larger than view
+                    leftMargin = (windowWidth - windowHeight*viewAspect)/2;
                 }
             }
-            
+
             if (shouldCropScreenLikeAMap) {
-                float mapY = 128.0;
                 float mapNegativeX = 20.0;
-                float mapHeight = 33.0, mapWidth = 44.0;
-                float mapX = 256 - mapNegativeX;
-            
-                float scissorFactorX = ((w - leftMargin*2)/256.0);
-                float scissorFactorY = ((h - topMargin*2)/192.0);
                 
-                glScissor((mapX*scissorFactorX + leftMargin)*factor, (mapY*scissorFactorY + topMargin)*factor, 
-                            mapWidth*scissorFactorX*factor, mapHeight*scissorFactorY*factor);
+                float mapY = 108.0;
+                float mapHeight = 33.0, mapWidth = 44.0;
+            
+                float viewWidth = windowWidth - leftMargin*2;
+                float viewHeight = windowHeight - topMargin*2;
+                float viewFactorX = viewWidth / 256.0;
+                float viewFactorY = viewHeight / 192.0;
+                
+                glScissor((leftMargin + viewWidth - (mapWidth + mapNegativeX)*viewFactorX)*factor, 
+                            (mapY*viewFactorY + topMargin)*factor, 
+                            mapWidth*viewFactorX*factor, mapHeight*viewFactorY*factor);
             }
             if (shouldCropScreenLikeAGauge) {
                 float gaugeY = 0;
@@ -1396,13 +1331,20 @@ void ScreenHandler::screenSetupLayout(int w, int h)
     int sizing = Config::ScreenSizing;
     if (sizing == 3) sizing = autoScreenSizing;
 
+    int screenAspectTop = Config::ScreenAspectTop;
+    int screenAspectBot = Config::ScreenAspectBot;
+    if (sizing == screenSizing_Even) {
+        screenAspectTop = 0;
+        screenAspectBot = 0;
+    }
+
     float aspectTop, aspectBot;
 
     for (auto ratio : aspectRatios)
     {
-        if (ratio.id == Config::ScreenAspectTop)
+        if (ratio.id == screenAspectTop)
             aspectTop = ratio.ratio;
-        if (ratio.id == Config::ScreenAspectBot)
+        if (ratio.id == screenAspectBot)
             aspectBot = ratio.ratio;
     }
 
@@ -1639,8 +1581,6 @@ void ScreenPanelNative::paintEvent(QPaintEvent* event)
         memcpy(screen[0].scanLine(0), GPU::Framebuffer[frontbuf][0], 256 * 192 * 4);
         memcpy(screen[1].scanLine(0), GPU::Framebuffer[frontbuf][1], 256 * 192 * 4);
         emuThread->FrontBufferLock.unlock();
-
-        painter.setRenderHint(QPainter::SmoothPixmapTransform, Config::ScreenFilter != 0);
 
         QRect screenrc(0, 0, 256, 192);
 
@@ -1906,9 +1846,23 @@ static bool SupportedArchiveByMimetype(const QMimeType& mimetype)
     return MimeTypeInList(mimetype, ArchiveMimeTypes);
 }
 
+static bool ZstdNdsRomByExtension(const QString& filename)
+{
+    return filename.endsWith(".zst", Qt::CaseInsensitive) &&
+        NdsRomByExtension(filename.left(filename.size() - 4));
+}
+
+static bool ZstdGbaRomByExtension(const QString& filename)
+{
+    return filename.endsWith(".zst", Qt::CaseInsensitive) &&
+        GbaRomByExtension(filename.left(filename.size() - 4));
+}
 
 static bool FileIsSupportedFiletype(const QString& filename, bool insideArchive = false)
 {
+    if (ZstdNdsRomByExtension(filename) || ZstdGbaRomByExtension(filename))
+        return true;
+
     if (NdsRomByExtension(filename) || GbaRomByExtension(filename) || SupportedArchiveByExtension(filename))
         return true;
 
@@ -1953,7 +1907,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     oldH = Config::WindowHeight;
     oldMax = Config::WindowMaximized;
 
-    setWindowTitle("melonDS " MELONDS_VERSION);
+    setWindowTitle("khDaysMM " KHDAYSMM_VERSION);
     setAttribute(Qt::WA_DeleteOnClose);
     setAcceptDrops(true);
     setFocusPolicy(Qt::ClickFocus);
@@ -2444,6 +2398,8 @@ void MainWindow::createScreenPanel()
     }
     setCentralWidget(panelWidget);
 
+    actScreenFiltering->setEnabled(hasOGL);
+
     connect(this, SIGNAL(screenLayoutChange()), panelWidget, SLOT(onScreenLayoutChanged()));
     emit screenLayoutChange();
 }
@@ -2552,12 +2508,17 @@ void MainWindow::dropEvent(QDropEvent* event)
     const auto matchMode = romInsideArchive ? QMimeDatabase::MatchExtension : QMimeDatabase::MatchDefault;
     const QMimeType mimetype = QMimeDatabase().mimeTypeForFile(filename, matchMode);
 
-    if (NdsRomByExtension(filename) || NdsRomByMimetype(mimetype))
+    bool isNdsRom = NdsRomByExtension(filename) || NdsRomByMimetype(mimetype);
+    bool isGbaRom = GbaRomByExtension(filename) || GbaRomByMimetype(mimetype);
+    isNdsRom |= ZstdNdsRomByExtension(filename);
+    isGbaRom |= ZstdGbaRomByExtension(filename);
+
+    if (isNdsRom)
     {
         if (!ROMManager::LoadROM(file, true))
         {
             // TODO: better error reporting?
-            QMessageBox::critical(this, "melonDS", "Failed to load the DS ROM.");
+            QMessageBox::critical(this, "khDaysMM", "Failed to load the DS ROM.");
             emuThread->emuUnpause();
             return;
         }
@@ -2572,12 +2533,12 @@ void MainWindow::dropEvent(QDropEvent* event)
 
         updateCartInserted(false);
     }
-    else if (GbaRomByExtension(filename) || GbaRomByMimetype(mimetype))
+    else if (isGbaRom)
     {
         if (!ROMManager::LoadGBAROM(file))
         {
             // TODO: better error reporting?
-            QMessageBox::critical(this, "melonDS", "Failed to load the GBA ROM.");
+            QMessageBox::critical(this, "khDaysMM", "Failed to load the GBA ROM.");
             emuThread->emuUnpause();
             return;
         }
@@ -2588,7 +2549,7 @@ void MainWindow::dropEvent(QDropEvent* event)
     }
     else
     {
-        QMessageBox::critical(this, "melonDS", "The file could not be recognized as a DS or GBA ROM.");
+        QMessageBox::critical(this, "khDaysMM", "The file could not be recognized as a DS or GBA ROM.");
         emuThread->emuUnpause();
         return;
     }
@@ -2596,12 +2557,12 @@ void MainWindow::dropEvent(QDropEvent* event)
 
 void MainWindow::focusInEvent(QFocusEvent* event)
 {
-    audioMute();
+    AudioInOut::AudioMute(mainWindow);
 }
 
 void MainWindow::focusOutEvent(QFocusEvent* event)
 {
-    audioMute();
+    AudioInOut::AudioMute(mainWindow);
 }
 
 void MainWindow::onAppStateChanged(Qt::ApplicationState state)
@@ -2623,7 +2584,7 @@ bool MainWindow::verifySetup()
     QString res = ROMManager::VerifySetup();
     if (!res.isEmpty())
     {
-         QMessageBox::critical(this, "melonDS", res);
+         QMessageBox::critical(this, "khDaysMM", res);
          return false;
     }
 
@@ -2643,7 +2604,7 @@ bool MainWindow::preloadROMs(QStringList file, QStringList gbafile, bool boot)
         if (!ROMManager::LoadGBAROM(gbafile))
         {
             // TODO: better error reporting?
-            QMessageBox::critical(this, "melonDS", "Failed to load the GBA ROM.");
+            QMessageBox::critical(this, "khDaysMM", "Failed to load the GBA ROM.");
             return false;
         }
 
@@ -2656,7 +2617,7 @@ bool MainWindow::preloadROMs(QStringList file, QStringList gbafile, bool boot)
         if (!ROMManager::LoadROM(file, true))
         {
             // TODO: better error reporting?
-            QMessageBox::critical(this, "melonDS", "Failed to load the ROM.");
+            QMessageBox::critical(this, "khDaysMM", "Failed to load the ROM.");
             return false;
         }
         recentFileList.removeAll(file.join("|"));
@@ -2698,7 +2659,7 @@ QStringList MainWindow::splitArchivePath(const QString& filename, bool useMember
         const QStringList filenameParts = filename.split('|');
         if (filenameParts.size() > 2)
         {
-            QMessageBox::warning(this, "melonDS", "This path contains too many '|'.");
+            QMessageBox::warning(this, "khDaysMM", "This path contains too many '|'.");
             return {};
         }
 
@@ -2707,14 +2668,14 @@ QStringList MainWindow::splitArchivePath(const QString& filename, bool useMember
             const QString archive = filenameParts.at(0);
             if (!QFileInfo(archive).exists())
             {
-                QMessageBox::warning(this, "melonDS", "This archive does not exist.");
+                QMessageBox::warning(this, "khDaysMM", "This archive does not exist.");
                 return {};
             }
 
             const QString subfile = filenameParts.at(1);
             if (!Archive::ListArchive(archive).contains(subfile))
             {
-                QMessageBox::warning(this, "melonDS", "This archive does not contain the desired file.");
+                QMessageBox::warning(this, "khDaysMM", "This archive does not contain the desired file.");
                 return {};
             }
 
@@ -2725,7 +2686,7 @@ QStringList MainWindow::splitArchivePath(const QString& filename, bool useMember
 
     if (!QFileInfo(filename).exists())
     {
-        QMessageBox::warning(this, "melonDS", "This ROM file does not exist.");
+        QMessageBox::warning(this, "khDaysMM", "This ROM file does not exist.");
         return {};
     }
 
@@ -2751,9 +2712,9 @@ QString MainWindow::pickFileFromArchive(QString archiveFileName)
     if (archiveROMList.size() <= 1)
     {
         if (!archiveROMList.isEmpty() && archiveROMList.at(0) == "OK")
-            QMessageBox::warning(this, "melonDS", "This archive is empty.");
+            QMessageBox::warning(this, "khDaysMM", "This archive is empty.");
         else
-            QMessageBox::critical(this, "melonDS", "This archive could not be read. It may be corrupt or you don't have the permissions.");
+            QMessageBox::critical(this, "khDaysMM", "This archive could not be read. It may be corrupt or you don't have the permissions.");
         return QString();
     }
 
@@ -2771,7 +2732,7 @@ QString MainWindow::pickFileFromArchive(QString archiveFileName)
 
     if (archiveROMList.isEmpty())
     {
-        QMessageBox::warning(this, "melonDS", "This archive does not contain any supported ROMs.");
+        QMessageBox::warning(this, "khDaysMM", "This archive does not contain any supported ROMs.");
         return QString();
     }
 
@@ -2780,7 +2741,7 @@ QString MainWindow::pickFileFromArchive(QString archiveFileName)
 
     bool ok;
     const QString toLoad = QInputDialog::getItem(
-        this, "melonDS",
+        this, "khDaysMM",
         "This archive contains multiple files. Select which ROM you want to load.",
         archiveROMList.toList(), 0, false, &ok
     );
@@ -2797,14 +2758,25 @@ QStringList MainWindow::pickROM(bool gba)
     const QString console = gba ? "GBA" : "DS";
     const QStringList& romexts = gba ? GbaRomExtensions : NdsRomExtensions;
 
-    static const QString filterSuffix = ArchiveExtensions.empty()
-        ? ");;Any file (*.*)"
-        : " *" + ArchiveExtensions.join(" *") + ");;Any file (*.*)";
+    QString rawROMs = romexts.join(" *");
+    QString extraFilters = ";;" + console + " ROMs (*" + rawROMs;
+    QString allROMs = rawROMs;
+
+    QString zstdROMs = "*" + romexts.join(".zst *") + ".zst";
+    extraFilters += ");;Zstandard-compressed " + console + " ROMs (" + zstdROMs + ")";
+    allROMs += " " + zstdROMs;
+
+#ifdef ARCHIVE_SUPPORT_ENABLED
+    QString archives = "*" + ArchiveExtensions.join(" *");
+    extraFilters += ";;Archives (" + archives + ")";
+    allROMs += " " + archives;
+#endif
+    extraFilters += ";;All files (*.*)";
 
     const QString filename = QFileDialog::getOpenFileName(
         this, "Open " + console + " ROM",
         QString::fromStdString(Config::LastROMFolder),
-        console + " ROMs (*" + romexts.join(" *") + filterSuffix
+        "All supported files (*" + allROMs + ")" + extraFilters
     );
 
     if (filename.isEmpty()) return {};
@@ -2848,7 +2820,7 @@ void MainWindow::loadMostRecentFile()
         if (!ROMManager::LoadROM(file, true))
         {
             // TODO: better error reporting?
-            QMessageBox::critical(this, "melonDS", "Failed to load the ROM.");
+            QMessageBox::critical(this, "khDaysMM", "Failed to load the ROM.");
             emuThread->emuUnpause();
             return;
         }
@@ -2886,7 +2858,7 @@ void MainWindow::onOpenFile()
     if (!ROMManager::LoadROM(file, true))
     {
         // TODO: better error reporting?
-        QMessageBox::critical(this, "melonDS", "Failed to load the ROM.");
+        QMessageBox::critical(this, "khDaysMM", "Failed to load the ROM.");
         emuThread->emuUnpause();
         return;
     }
@@ -2984,7 +2956,7 @@ void MainWindow::onClickRecentFile()
     if (!ROMManager::LoadROM(file, true))
     {
         // TODO: better error reporting?
-        QMessageBox::critical(this, "melonDS", "Failed to load the ROM.");
+        QMessageBox::critical(this, "khDaysMM", "Failed to load the ROM.");
         emuThread->emuUnpause();
         return;
     }
@@ -3010,9 +2982,9 @@ void MainWindow::onBootFirmware()
     }
 
     if (!ROMManager::LoadBIOS())
-{
+    {
         // TODO: better error reporting?
-        QMessageBox::critical(this, "melonDS", "This firmware is not bootable.");
+        QMessageBox::critical(this, "khDaysMM", "This firmware is not bootable.");
         emuThread->emuUnpause();
         return;
     }
@@ -3035,7 +3007,7 @@ void MainWindow::onInsertCart()
     if (!ROMManager::LoadROM(file, false))
     {
         // TODO: better error reporting?
-        QMessageBox::critical(this, "melonDS", "Failed to load the ROM.");
+        QMessageBox::critical(this, "khDaysMM", "Failed to load the ROM.");
         emuThread->emuUnpause();
         return;
     }
@@ -3070,7 +3042,7 @@ void MainWindow::onInsertGBACart()
     if (!ROMManager::LoadGBAROM(file))
     {
         // TODO: better error reporting?
-        QMessageBox::critical(this, "melonDS", "Failed to load the ROM.");
+        QMessageBox::critical(this, "khDaysMM", "Failed to load the ROM.");
         emuThread->emuUnpause();
         return;
     }
@@ -3122,7 +3094,7 @@ void MainWindow::onSaveState()
         QString qfilename = QFileDialog::getSaveFileName(this,
                                                          "Save state",
                                                          QString::fromStdString(Config::LastROMFolder),
-                                                         "melonDS savestates (*.mln);;Any file (*.*)");
+                                                         "khDaysMM savestates (*.mln);;Any file (*.*)");
         if (qfilename.isEmpty())
         {
             emuThread->emuUnpause();
@@ -3166,7 +3138,7 @@ void MainWindow::onLoadState()
         QString qfilename = QFileDialog::getOpenFileName(this,
                                                          "Load state",
                                                          QString::fromStdString(Config::LastROMFolder),
-                                                         "melonDS savestates (*.ml*);;Any file (*.*)");
+                                                         "khDaysMM savestates (*.ml*);;Any file (*.*)");
         if (qfilename.isEmpty())
         {
             emuThread->emuUnpause();
@@ -3230,7 +3202,7 @@ void MainWindow::onImportSavefile()
     FILE* f = Platform::OpenFile(path.toStdString(), "rb", true);
     if (!f)
     {
-        QMessageBox::critical(this, "melonDS", "Could not open the given savefile.");
+        QMessageBox::critical(this, "khDaysMM", "Could not open the given savefile.");
         emuThread->emuUnpause();
         return;
     }
@@ -3238,7 +3210,7 @@ void MainWindow::onImportSavefile()
     if (RunningSomething)
     {
         if (QMessageBox::warning(this,
-                        "melonDS",
+                        "khDaysMM",
                         "The emulation will be reset and the current savefile overwritten.",
                         QMessageBox::Ok, QMessageBox::Cancel) != QMessageBox::Ok)
         {
@@ -3454,7 +3426,9 @@ void MainWindow::onCameraSettingsFinished(int res)
 
 void MainWindow::onOpenAudioSettings()
 {
-    AudioSettingsDialog* dlg = AudioSettingsDialog::openDlg(this);
+    AudioSettingsDialog* dlg = AudioSettingsDialog::openDlg(this, emuThread->emuIsActive());
+    connect(emuThread, &EmuThread::syncVolumeLevel, dlg, &AudioSettingsDialog::onSyncVolumeLevel);
+    connect(emuThread, &EmuThread::windowEmuStart, dlg, &AudioSettingsDialog::onConsoleReset);
     connect(dlg, &AudioSettingsDialog::updateAudioSettings, this, &MainWindow::onUpdateAudioSettings);
     connect(dlg, &AudioSettingsDialog::finished, this, &MainWindow::onAudioSettingsFinished);
 }
@@ -3503,27 +3477,7 @@ void MainWindow::onUpdateAudioSettings()
 
 void MainWindow::onAudioSettingsFinished(int res)
 {
-    micClose();
-
-    SPU::SetInterpolation(Config::AudioInterp);
-
-    if (Config::MicInputType == 3)
-    {
-        micLoadWav(Config::MicWavPath);
-        Frontend::Mic_SetExternalBuffer(micWavBuffer, micWavLength);
-    }
-    else
-    {
-        delete[] micWavBuffer;
-        micWavBuffer = nullptr;
-
-        if (Config::MicInputType == 1)
-            Frontend::Mic_SetExternalBuffer(micExtBuffer, sizeof(micExtBuffer)/sizeof(s16));
-        else
-            Frontend::Mic_SetExternalBuffer(NULL, 0);
-    }
-
-    micOpen();
+    AudioInOut::UpdateSettings();
 }
 
 void MainWindow::onOpenMPSettings()
@@ -3536,7 +3490,7 @@ void MainWindow::onOpenMPSettings()
 
 void MainWindow::onMPSettingsFinished(int res)
 {
-    audioMute();
+    AudioInOut::AudioMute(mainWindow);
     LocalMP::SetRecvTimeout(Config::MPRecvTimeout);
 
     emuThread->emuUnpause();
@@ -3697,7 +3651,8 @@ void MainWindow::onTitleUpdate(QString title)
     setWindowTitle(title);
 }
 
-void ToggleFullscreen(MainWindow* mainWindow) {
+void ToggleFullscreen(MainWindow* mainWindow)
+{
     if (!mainWindow->isFullScreen())
     {
         mainWindow->showFullScreen();
@@ -3714,6 +3669,21 @@ void ToggleFullscreen(MainWindow* mainWindow) {
 void MainWindow::onFullscreenToggled()
 {
     ToggleFullscreen(this);
+}
+
+void MainWindow::onScreenEmphasisToggled()
+{
+    int currentSizing = Config::ScreenSizing;
+    if (currentSizing == screenSizing_EmphTop)
+    {
+        Config::ScreenSizing = screenSizing_EmphBot;
+    }
+    else if (currentSizing == screenSizing_EmphBot)
+    {
+        Config::ScreenSizing = screenSizing_EmphTop;
+    }
+
+    emit screenLayoutChange();
 }
 
 void MainWindow::onEmuStart()
@@ -3793,7 +3763,7 @@ void emuStop()
 MelonApplication::MelonApplication(int& argc, char** argv)
     : QApplication(argc, argv)
 {
-    setWindowIcon(QIcon(":/melon-icon"));
+    setWindowIcon(QIcon(":/khDaysMM-icon"));
 }
 
 bool MelonApplication::event(QEvent *event)
@@ -3817,8 +3787,8 @@ int main(int argc, char** argv)
 
     qputenv("QT_SCALE_FACTOR", "1");
 
-    printf("melonDS " MELONDS_VERSION "\n");
-    printf(MELONDS_URL "\n");
+    printf("khDaysMM " KHDAYSMM_VERSION "\n");
+    printf(KHDAYSMM_URL "\n");
 
     // easter egg - not worth checking other cases for something so dumb
     if (argc != 0 && (!strcasecmp(argv[0], "derpDS") || !strcasecmp(argv[0], "./derpDS")))
@@ -3847,12 +3817,12 @@ int main(int argc, char** argv)
         QString errorStr = "Failed to initialize SDL. This could indicate an issue with your audio driver.\n\nThe error was: ";
         errorStr += err;
 
-        QMessageBox::critical(NULL, "melonDS", errorStr);
+        QMessageBox::critical(NULL, "khDaysMM", errorStr);
         return 1;
     }
 
     SDL_JoystickEventState(SDL_ENABLE);
-    
+
     SDL_InitSubSystem(SDL_INIT_VIDEO);
     SDL_EnableScreenSaver(); SDL_DisableScreenSaver();
 
@@ -3871,7 +3841,7 @@ int main(int argc, char** argv)
     SANITIZE(Config::GL_ScaleFactor, 1, 16);
     SANITIZE(Config::AudioInterp, 0, 3);
     SANITIZE(Config::AudioVolume, 0, 256);
-    SANITIZE(Config::MicInputType, 0, 3);
+    SANITIZE(Config::MicInputType, 0, (int)micInputType_MAX);
     SANITIZE(Config::ScreenRotation, 0, 3);
     SANITIZE(Config::ScreenGap, 0, 500);
     SANITIZE(Config::ScreenLayout, 0, 3);
@@ -3880,36 +3850,7 @@ int main(int argc, char** argv)
     SANITIZE(Config::ScreenAspectBot, 0, 4);
 #undef SANITIZE
 
-    audioMuted = false;
-    audioSync = SDL_CreateCond();
-    audioSyncLock = SDL_CreateMutex();
-
-    audioFreq = 48000; // TODO: make configurable?
-    SDL_AudioSpec whatIwant, whatIget;
-    memset(&whatIwant, 0, sizeof(SDL_AudioSpec));
-    whatIwant.freq = audioFreq;
-    whatIwant.format = AUDIO_S16LSB;
-    whatIwant.channels = 2;
-    whatIwant.samples = 1024;
-    whatIwant.callback = audioCallback;
-    audioDevice = SDL_OpenAudioDevice(NULL, 0, &whatIwant, &whatIget, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-    if (!audioDevice)
-    {
-        printf("Audio init failed: %s\n", SDL_GetError());
-    }
-    else
-    {
-        audioFreq = whatIget.freq;
-        printf("Audio output frequency: %d Hz\n", audioFreq);
-        SDL_PauseAudioDevice(audioDevice, 1);
-    }
-
-    micDevice = 0;
-
-    memset(micExtBuffer, 0, sizeof(micExtBuffer));
-    micExtBufferWritePos = 0;
-    micWavBuffer = nullptr;
-
+    AudioInOut::Init();
     camStarted[0] = false;
     camStarted[1] = false;
     camManager[0] = new CameraManager(0, 640, 480, true);
@@ -3918,18 +3859,6 @@ int main(int argc, char** argv)
     camManager[1]->setXFlip(Config::Camera[1].XFlip);
 
     ROMManager::EnableCheats(Config::EnableCheats != 0);
-
-    Frontend::Init_Audio(audioFreq);
-
-    if (Config::MicInputType == 1)
-    {
-        Frontend::Mic_SetExternalBuffer(micExtBuffer, sizeof(micExtBuffer)/sizeof(s16));
-    }
-    else if (Config::MicInputType == 3)
-    {
-        micLoadWav(Config::MicWavPath);
-        Frontend::Mic_SetExternalBuffer(micWavBuffer, micWavLength);
-    }
 
     Input::JoystickID = Config::JoystickID;
     Input::OpenJoystick();
@@ -3942,7 +3871,7 @@ int main(int argc, char** argv)
     emuThread->start();
     emuThread->emuPause();
 
-    audioMute();
+    AudioInOut::AudioMute(mainWindow);
 
     QObject::connect(&melon, &QApplication::applicationStateChanged, mainWindow, &MainWindow::onAppStateChanged);
 
@@ -3975,14 +3904,7 @@ int main(int argc, char** argv)
 
     Input::CloseJoystick();
 
-    if (audioDevice) SDL_CloseAudioDevice(audioDevice);
-    micClose();
-
-    SDL_DestroyCond(audioSync);
-    SDL_DestroyMutex(audioSyncLock);
-
-    if (micWavBuffer) delete[] micWavBuffer;
-
+    AudioInOut::DeInit();
     delete camManager[0];
     delete camManager[1];
 

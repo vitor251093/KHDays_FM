@@ -32,9 +32,13 @@ enum
     HK_FastForwardToggle,
     HK_FullscreenToggle,
     HK_SwapScreens,
+    HK_SwapScreenEmphasis,
     HK_SolarSensorDecrease,
     HK_SolarSensorIncrease,
     HK_FrameStep,
+    HK_PowerButton,
+    HK_VolumeUp,
+    HK_VolumeDown,
     HK_MAX
 };
 
@@ -55,21 +59,42 @@ enum
 {
     gameScene_Intro,              // 0
     gameScene_MainMenu,           // 1
-    gameScene_IntroSaveMenu,      // 2
-    gameScene_IntroCutscene,      // 3
-    gameScene_DayCounter,         // 4
-    gameScene_Cutscene,           // 5
-    gameScene_InGameWithMap,      // 6
-    gameScene_InGameWithoutMap,   // 7
-    gameScene_InGameMenu,         // 8
-    gameScene_InGameSaveMenu,     // 9
-    gameScene_InHoloMissionMenu,  // 10
-    gameScene_PauseMenu,          // 11
-    gameScene_PauseMenuWithGauge, // 12
-    gameScene_Tutorial,           // 13
-    gameScene_RoxasThoughts,      // 14
-    gameScene_Other2D,            // 15
-    gameScene_Other               // 16
+    gameScene_IntroLoadMenu,      // 2
+    gameScene_DayCounter,         // 3
+    gameScene_Cutscene,           // 4
+    gameScene_TopCutscene,        // 5
+    gameScene_BottomCutscene,     // 6
+    gameScene_InGameWithMap,      // 7
+    gameScene_InGameWithoutMap,   // 8
+    gameScene_InGameMenu,         // 9
+    gameScene_InGameSaveMenu,     // 10
+    gameScene_InHoloMissionMenu,  // 11
+    gameScene_PauseMenu,          // 12
+    gameScene_PauseMenuWithGauge, // 13
+    gameScene_Tutorial,           // 14
+    gameScene_RoxasThoughts,      // 15
+    gameScene_Shop,               // 16
+    gameScene_BlackScreen,        // 17
+    gameScene_Other2D,            // 18
+    gameScene_Other               // 19
+};
+
+enum
+{
+    micInputType_Silence,
+    micInputType_External,
+    micInputType_Noise,
+    micInputType_Wav,
+    micInputType_MAX,
+};
+
+const struct { int id; float ratio; const char* label; } aspectRatios[] =
+{
+    { 0, 1,                       "4:3 (native)" },
+    { 4, (5.f  / 3) / (4.f / 3),  "5:3 (3DS)"},
+    { 1, (16.f / 9) / (4.f / 3),  "16:9" },
+    { 2, (21.f / 9) / (4.f / 3),  "21:9" },
+    { 3, 0,                       "window" }
 };
 
 namespace Config
@@ -101,6 +126,9 @@ extern int HKJoyMapping[HK_MAX];
 
 extern int TouchKeyMapping[4];
 extern int TouchJoyMapping[4];
+
+extern int CmdMenuKeyMapping[4];
+extern int CmdMenuJoyMapping[4];
 
 extern int JoystickID;
 
@@ -188,10 +216,12 @@ extern bool SavestateRelocSRAM;
 extern int AudioInterp;
 extern int AudioBitrate;
 extern int AudioVolume;
+extern bool DSiVolumeSync;
 extern int MicInputType;
 extern std::string MicWavPath;
 
 extern std::string LastROMFolder;
+extern std::string LastBIOSFolder;
 
 extern std::string RecentROMList[10];
 
