@@ -221,10 +221,14 @@ bool JoystickButtonDown(int val)
                 if (axisval > minimalUsableAxis) {
                     scaledAxisval = (int)(axisval - minimalUsableAxis);
                     scaledAxisval = (int)(scaledAxisval * scale);
-                    printf("\nscaledAxisval: %d\n", scaledAxisval);
-                    printf("requirement: %d\n", JoystickDirectionsMovementFrame);
-                    printf("movement: %d\n", scaledAxisval > JoystickDirectionsMovementFrame ? 1 : 0);
-                    return scaledAxisval > JoystickDirectionsMovementFrame;
+                    int deadFrames = JoystickDirectionsAccuracy - scaledAxisval;
+                    bool shouldMove = true;
+                    if (deadFrames > 0) {
+                        float deadFrameIndex = ((float)JoystickDirectionsAccuracy) / deadFrames;
+                        float distanceFromDeadFrame = (round(JoystickDirectionsMovementFrame / deadFrameIndex) - truncf(JoystickDirectionsMovementFrame / deadFrameIndex));
+                        shouldMove = distanceFromDeadFrame > 0.1;
+                    }
+                    return shouldMove;
                 }
                 break;
 
@@ -232,10 +236,14 @@ bool JoystickButtonDown(int val)
                 if (axisval < -minimalUsableAxis) {
                     scaledAxisval = (int)(abs(axisval) - minimalUsableAxis);
                     scaledAxisval = (int)(scaledAxisval * scale);
-                    printf("\nscaledAxisval: %d\n", scaledAxisval);
-                    printf("requirement: %d\n", JoystickDirectionsMovementFrame);
-                    printf("movement: %d\n", scaledAxisval > JoystickDirectionsMovementFrame ? 1 : 0);
-                    return scaledAxisval > JoystickDirectionsMovementFrame;
+                    int deadFrames = JoystickDirectionsAccuracy - scaledAxisval;
+                    bool shouldMove = true;
+                    if (deadFrames > 0) {
+                        float deadFrameIndex = ((float)JoystickDirectionsAccuracy) / deadFrames;
+                        float distanceFromDeadFrame = (round(JoystickDirectionsMovementFrame / deadFrameIndex) - truncf(JoystickDirectionsMovementFrame / deadFrameIndex));
+                        shouldMove = distanceFromDeadFrame > 0.1;
+                    }
+                    return shouldMove;
                 }
                 break;
 
