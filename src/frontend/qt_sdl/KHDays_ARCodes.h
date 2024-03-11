@@ -42,6 +42,7 @@ private:
 
     ARCode ChangeAspectRatio(std::string codeName, u32 address);
     ARCode AlwaysEnableXAndDPadToControlCommandMenu(std::string codeName, u32 address);
+    ARCode Enable360Movement(std::string codeName, u32 address);
 };
 
 }
