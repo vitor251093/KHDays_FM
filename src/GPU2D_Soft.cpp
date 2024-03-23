@@ -19,6 +19,8 @@
 #include "GPU2D_Soft.h"
 #include "GPU.h"
 #include "GPU3D_OpenGL.h"
+#include "TextureUtils.h"
+#include <filesystem>
 
 namespace melonDS
 {
@@ -1959,6 +1961,41 @@ void SoftRenderer::DrawSprite_Normal(u32 num, u32 width, u32 height, s32 xpos, s
 
     u16 color = 0; // transparent in all cases
 
+    printf("SoftRenderer::DrawSprite_Normal(tilenum: %d, width: %d, height: %d, xpos: %d, ypos: %d, xoff: %d, xend: %d)\n", tilenum, width, height, xpos, ypos, xoff, xend);
+
+    s32 orig_xoff = xoff;
+    s32 orig_xpos = xpos;
+
+    std::ostringstream oss;
+    oss << tilenum;
+    std::string uniqueIdentifier = oss.str();
+
+    std::filesystem::path currentPath = std::filesystem::current_path();
+    std::string filename = uniqueIdentifier + ".png";
+    std::filesystem::path fullPath = currentPath / "textures" / filename;
+    std::filesystem::path fullPathTmp = currentPath / "textures_tmp_2" / filename;
+#ifdef _WIN32
+    const char* path = fullPath.string().c_str();
+    const char* pathTmp = fullPathTmp.string().c_str();
+#else
+    const char* path = fullPath.c_str();
+    const char* pathTmp = fullPathTmp.c_str();
+#endif
+
+    int channels = 4;
+    int r_width, r_height, r_channels;
+    unsigned char* imageData = TextureUtils::LoadTextureFromFile(path, &r_width, &r_height, &r_channels);
+    bool hasFinalImage = false;
+    if (imageData != nullptr)
+    {
+        hasFinalImage = true;
+    }
+    else
+    {
+        // load 2D image from elsewhere
+        imageData = TextureUtils::LoadTextureFromFile(pathTmp, &r_width, &r_height, &r_channels);
+    }
+
     if (spritemode == 3)
     {
         // bitmap sprite
@@ -2161,6 +2198,68 @@ void SoftRenderer::DrawSprite_Normal(u32 num, u32 width, u32 height, s32 xpos, s
                 xpos++;
                 if (!(xoff & 0x7)) pixelsaddr += ((attrib[1] & 0x1000) ? -28 : 28);
             }
+        }
+    }
+
+    if (hasFinalImage)
+    {
+        return;
+    }
+
+    if (imageData == nullptr)
+    {
+        imageData = (unsigned char*)malloc(height * width * channels * sizeof(unsigned char[4]));
+    }
+
+    xoff = orig_xoff;
+    xpos = orig_xpos;
+
+    bool newLine = false;
+    int y = ypos;
+    for (; xoff < xend;)
+    {
+        u32 og_pixel = objLine[xpos];
+
+        u16 color = 0;
+        if (og_pixel & 0x8000) {
+            color = og_pixel & 0x7FFF;
+        }
+        else if (og_pixel & 0x1000) {
+            u16* pal = (u16*)&GPU.Palette[CurUnit->Num ? 0x600 : 0x200];
+            color = pal[og_pixel & 0xFF];
+        }
+        else {
+            u16* extpal = CurUnit->GetOBJExtPal();
+            color = extpal[og_pixel & 0xFFF];
+        }
+
+        u8 r = ((color & 0x001F) << 1);
+        u8 g = ((color & 0x03E0) >> 4);
+        u8 b = ((color & 0x7C00) >> 9);
+
+        unsigned char* pixel = imageData + (y * width + xoff) * (channels);
+
+        if (pixel[3] != 31)
+        {
+            newLine = true;
+        }
+
+        pixel[0] = r;
+        pixel[1] = g;
+        pixel[2] = b;
+        pixel[3] = 31;
+
+        xoff++;
+        xpos++;
+    }
+
+    if (newLine)
+    {
+        if (ypos + 1 == height) {
+            TextureUtils::ExportTextureAsFile(imageData, path, width, height, channels);
+        }
+        else {
+            TextureUtils::ExportTextureAsFile(imageData, pathTmp, width, height, channels);
         }
     }
 }

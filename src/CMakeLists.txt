@@ -49,6 +49,7 @@ add_library(core STATIC
     SPI.cpp
     SPI_Firmware.cpp
     SPU.cpp
+    TextureUtils.cpp
     types.h
     Utils.cpp
     Utils.h
