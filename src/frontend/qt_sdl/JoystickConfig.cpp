@@ -75,6 +75,8 @@ JoystickConfigEntry HKControls[] =
     {"", -1, 0}
 };
 
+std::map<int, std::array<int, 12>> JoyDefaultMapping = {};
+std::map<int, std::array<int, HK_MAX>> HKJoyDefaultMapping = {};
 
 void LoadFile(int inst)
 {
@@ -149,6 +151,19 @@ void Load()
 {
     JoyMapping.clear();
     HKJoyMapping.clear();
+
+    for(std::map<int,std::array<int, 12>>::iterator it = JoyDefaultMapping.begin(); it != JoyDefaultMapping.end(); ++it)
+    {
+        for (JoystickConfigEntry* entry = &Controls[0]; entry->Value; entry++)
+        {
+            *(int*)JoyMapping[it->first][entry->Index] = it->second[entry->Index];
+        }
+
+        for (JoystickConfigEntry* entry = &HKControls[0]; entry->Value; entry++)
+        {
+            *(int*)HKJoyMapping[it->first][entry->Index] = HKJoyMapping[it->first][entry->Index];
+        }
+    }
 
     LoadFile(0);
 
