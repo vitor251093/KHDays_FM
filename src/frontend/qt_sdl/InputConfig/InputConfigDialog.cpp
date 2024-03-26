@@ -46,14 +46,14 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
     for (int i = 0; i < keypad_num; i++)
     {
         keypadKeyMap[i] = Config::KeyMapping[dskeyorder[i]];
-        keypadJoyMap[i] = Config::JoyMapping[dskeyorder[i]];
+        keypadJoyMap[i] = JoystickConfig::JoyMapping[Input::JoystickUniqueDeviceID][dskeyorder[i]];
     }
 
     int i = 0;
     for (int hotkey : hk_addons)
     {
         addonsKeyMap[i] = Config::HKKeyMapping[hotkey];
-        addonsJoyMap[i] = Config::HKJoyMapping[hotkey];
+        addonsJoyMap[i] = JoystickConfig::HKJoyMapping[Input::JoystickUniqueDeviceID][hotkey];
         i++;
     }
 
@@ -61,7 +61,7 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
     for (int hotkey : hk_general)
     {
         hkGeneralKeyMap[i] = Config::HKKeyMapping[hotkey];
-        hkGeneralJoyMap[i] = Config::HKJoyMapping[hotkey];
+        hkGeneralJoyMap[i] = JoystickConfig::HKJoyMapping[Input::JoystickUniqueDeviceID][hotkey];
         i++;
     }
 
@@ -177,14 +177,14 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
     for (int i = 0; i < keypad_num; i++)
     {
         Config::KeyMapping[dskeyorder[i]] = keypadKeyMap[i];
-        Config::JoyMapping[dskeyorder[i]] = keypadJoyMap[i];
+        JoystickConfig::JoyMapping[Input::JoystickUniqueDeviceID][dskeyorder[i]] = keypadJoyMap[i];
     }
 
     int i = 0;
     for (int hotkey : hk_addons)
     {
         Config::HKKeyMapping[hotkey] = addonsKeyMap[i];
-        Config::HKJoyMapping[hotkey] = addonsJoyMap[i];
+        JoystickConfig::HKJoyMapping[Input::JoystickUniqueDeviceID][hotkey] = addonsJoyMap[i];
         i++;
     }
 
@@ -192,7 +192,7 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
     for (int hotkey : hk_general)
     {
         Config::HKKeyMapping[hotkey] = hkGeneralKeyMap[i];
-        Config::HKJoyMapping[hotkey] = hkGeneralJoyMap[i];
+        JoystickConfig::HKJoyMapping[Input::JoystickUniqueDeviceID][hotkey] = hkGeneralJoyMap[i];
         i++;
     }
 

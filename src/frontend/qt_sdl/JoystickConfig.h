@@ -16,40 +16,30 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
-#ifndef INPUT_H
-#define INPUT_H
+#ifndef PLATFORMJOYSTICKCONFIG_H
+#define PLATFORMJOYSTICKCONFIG_H
 
-#include <SDL2/SDL.h>
+#include <variant>
+#include <string>
+#include <map>
+#include "Config.h"
 
-#include "types.h"
-
-namespace Input
+namespace JoystickConfig
 {
 
-using namespace melonDS;
-extern int JoystickID;
-extern int JoystickUniqueDeviceID;
-extern SDL_Joystick* Joystick;
+struct JoystickConfigEntry
+{
+    char Name[32];
+    int Index;
+    int Value;
+};
 
-extern u32 InputMask;
+extern std::map<int, std::array<int, 12>> JoyMapping;
+extern std::map<int, std::array<int, HK_MAX>> HKJoyMapping;
 
-void Init();
-
-// set joystickID before calling openJoystick()
-void OpenJoystick();
-void CloseJoystick();
-
-void KeyPress(QKeyEvent* event);
-void KeyRelease(QKeyEvent* event);
-
-void Process();
-
-bool HotkeyDown(int id);
-bool HotkeyPressed(int id);
-bool HotkeyReleased(int id);
-
-bool IsRightModKey(QKeyEvent* event);
+void Load();
+void Save();
 
 }
 
-#endif // INPUT_H
+#endif // PLATFORMJOYSTICKCONFIG_H

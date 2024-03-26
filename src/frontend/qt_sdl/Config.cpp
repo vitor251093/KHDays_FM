@@ -29,10 +29,7 @@ namespace Config
 using namespace melonDS;
 
 int KeyMapping[12];
-int JoyMapping[12];
-
 int HKKeyMapping[HK_MAX];
-int HKJoyMapping[HK_MAX];
 
 int JoystickID;
 
@@ -180,19 +177,6 @@ ConfigEntry ConfigFile[] =
     {"Key_X",      0, &KeyMapping[10], -1, true},
     {"Key_Y",      0, &KeyMapping[11], -1, true},
 
-    {"Joy_A",      0, &JoyMapping[0],  -1, true},
-    {"Joy_B",      0, &JoyMapping[1],  -1, true},
-    {"Joy_Select", 0, &JoyMapping[2],  -1, true},
-    {"Joy_Start",  0, &JoyMapping[3],  -1, true},
-    {"Joy_Right",  0, &JoyMapping[4],  -1, true},
-    {"Joy_Left",   0, &JoyMapping[5],  -1, true},
-    {"Joy_Up",     0, &JoyMapping[6],  -1, true},
-    {"Joy_Down",   0, &JoyMapping[7],  -1, true},
-    {"Joy_R",      0, &JoyMapping[8],  -1, true},
-    {"Joy_L",      0, &JoyMapping[9],  -1, true},
-    {"Joy_X",      0, &JoyMapping[10], -1, true},
-    {"Joy_Y",      0, &JoyMapping[11], -1, true},
-
     {"HKKey_Lid",                 0, &HKKeyMapping[HK_Lid],                 -1, true},
     {"HKKey_Mic",                 0, &HKKeyMapping[HK_Mic],                 -1, true},
     {"HKKey_Pause",               0, &HKKeyMapping[HK_Pause],               -1, true},
@@ -208,22 +192,6 @@ ConfigEntry ConfigFile[] =
     {"HKKey_PowerButton",         0, &HKKeyMapping[HK_PowerButton],         -1, true},
     {"HKKey_VolumeUp",            0, &HKKeyMapping[HK_VolumeUp],            -1, true},
     {"HKKey_VolumeDown",          0, &HKKeyMapping[HK_VolumeDown],          -1, true},
-
-    {"HKJoy_Lid",                 0, &HKJoyMapping[HK_Lid],                 -1, true},
-    {"HKJoy_Mic",                 0, &HKJoyMapping[HK_Mic],                 -1, true},
-    {"HKJoy_Pause",               0, &HKJoyMapping[HK_Pause],               -1, true},
-    {"HKJoy_Reset",               0, &HKJoyMapping[HK_Reset],               -1, true},
-    {"HKJoy_FastForward",         0, &HKJoyMapping[HK_FastForward],         -1, true},
-    {"HKJoy_FastForwardToggle",   0, &HKJoyMapping[HK_FastForwardToggle],   -1, true},
-    {"HKJoy_FullscreenToggle",    0, &HKJoyMapping[HK_FullscreenToggle],    -1, true},
-    {"HKJoy_SwapScreens",         0, &HKJoyMapping[HK_SwapScreens],         -1, true},
-    {"HKJoy_SwapScreenEmphasis",  0, &HKJoyMapping[HK_SwapScreenEmphasis],  -1, true},
-    {"HKJoy_SolarSensorDecrease", 0, &HKJoyMapping[HK_SolarSensorDecrease], -1, true},
-    {"HKJoy_SolarSensorIncrease", 0, &HKJoyMapping[HK_SolarSensorIncrease], -1, true},
-    {"HKJoy_FrameStep",           0, &HKJoyMapping[HK_FrameStep],           -1, true},
-    {"HKJoy_PowerButton",         0, &HKJoyMapping[HK_PowerButton],         -1, true},
-    {"HKJoy_VolumeUp",            0, &HKJoyMapping[HK_VolumeUp],            -1, true},
-    {"HKJoy_VolumeDown",          0, &HKJoyMapping[HK_VolumeDown],          -1, true},
 
     {"JoystickID", 0, &JoystickID, 0, true},
 

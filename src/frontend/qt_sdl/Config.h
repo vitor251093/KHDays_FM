@@ -21,6 +21,7 @@
 
 #include <variant>
 #include <string>
+#include <map>
 
 enum
 {
@@ -73,10 +74,7 @@ struct CameraConfig
 
 
 extern int KeyMapping[12];
-extern int JoyMapping[12];
-
 extern int HKKeyMapping[HK_MAX];
-extern int HKJoyMapping[HK_MAX];
 
 extern int JoystickID;
 

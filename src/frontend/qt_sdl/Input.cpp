@@ -21,6 +21,7 @@
 
 #include "Input.h"
 #include "Config.h"
+#include "JoystickConfig.h"
 
 using namespace melonDS;
 
@@ -28,6 +29,7 @@ namespace Input
 {
 
 int JoystickID;
+int JoystickUniqueDeviceID;
 SDL_Joystick* Joystick = nullptr;
 
 u32 KeyInputMask, JoyInputMask;
@@ -66,6 +68,10 @@ void OpenJoystick()
         JoystickID = 0;
 
     Joystick = SDL_JoystickOpen(JoystickID);
+
+    u32 vendorId = SDL_JoystickGetDeviceVendor(JoystickID);
+    u32 productId = SDL_JoystickGetDeviceProduct(JoystickID);
+    JoystickUniqueDeviceID = (vendorId << 16) | productId;
 }
 
 void CloseJoystick()
@@ -203,16 +209,22 @@ void Process()
         OpenJoystick();
     }
 
+    if (JoystickConfig::JoyMapping.find(JoystickUniqueDeviceID) == JoystickConfig::JoyMapping.end())
+    {
+        JoystickConfig::JoyMapping[JoystickUniqueDeviceID] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+        JoystickConfig::HKJoyMapping[JoystickUniqueDeviceID] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    }
+
     JoyInputMask = 0xFFF;
     for (int i = 0; i < 12; i++)
-        if (JoystickButtonDown(Config::JoyMapping[i]))
+        if (JoystickButtonDown(JoystickConfig::JoyMapping[JoystickUniqueDeviceID][i]))
             JoyInputMask &= ~(1<<i);
 
     InputMask = KeyInputMask & JoyInputMask;
 
     JoyHotkeyMask = 0;
     for (int i = 0; i < HK_MAX; i++)
-        if (JoystickButtonDown(Config::HKJoyMapping[i]))
+        if (JoystickButtonDown(JoystickConfig::HKJoyMapping[JoystickUniqueDeviceID][i]))
             JoyHotkeyMask |= (1<<i);
 
     HotkeyMask = KeyHotkeyMask | JoyHotkeyMask;

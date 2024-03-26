@@ -10,6 +10,7 @@ set(SOURCES_QT_SDL
     EmuThread.cpp
     CheatsDialog.cpp
     Config.cpp
+    JoystickConfig.cpp
     DateTimeDialog.cpp
     EmuSettingsDialog.cpp
     PowerManagement/PowerManagementDialog.cpp

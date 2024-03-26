@@ -24,6 +24,7 @@
 #include <initializer_list>
 
 #include "Config.h"
+#include "JoystickConfig.h"
 
 static constexpr int keypad_num = 12;
 
