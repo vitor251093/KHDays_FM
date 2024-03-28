@@ -198,6 +198,7 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
 
     Config::JoystickID = Input::JoystickID;
     Config::Save();
+    JoystickConfig::Save();
 
     closeDlg();
 }

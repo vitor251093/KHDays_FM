@@ -332,6 +332,7 @@ int main(int argc, char** argv)
     SDL_EnableScreenSaver(); SDL_DisableScreenSaver();
 
     Config::Load();
+    JoystickConfig::Load();
 
 #define SANITIZE(var, min, max)  { var = std::clamp(var, min, max); }
     SANITIZE(Config::ConsoleType, 0, 1);

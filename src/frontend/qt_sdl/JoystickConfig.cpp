@@ -158,10 +158,12 @@ void Load()
         {
             *(int*)JoyMapping[it->first][entry->Index] = it->second[entry->Index];
         }
-
+    }
+    for(std::map<int,std::array<int, HK_MAX>>::iterator it = HKJoyDefaultMapping.begin(); it != HKJoyDefaultMapping.end(); ++it)
+    {
         for (JoystickConfigEntry* entry = &HKControls[0]; entry->Value; entry++)
         {
-            *(int*)HKJoyMapping[it->first][entry->Index] = HKJoyMapping[it->first][entry->Index];
+            *(int*)HKJoyMapping[it->first][entry->Index] = it->second[entry->Index];
         }
     }
 
@@ -203,7 +205,9 @@ void Save()
             if (inst > 0)
                 continue;
 
-            Platform::FileWriteFormatted(f, "%s.%d=%d\n", it->first, entry->Name, HKJoyMapping[it->first][entry->Index]);
+            if (HKJoyMapping.find(it->first) != HKJoyMapping.end()) {
+                Platform::FileWriteFormatted(f, "%s.%d=%d\n", it->first, entry->Name, HKJoyMapping[it->first][entry->Index]);
+            }
         }
     }
 
