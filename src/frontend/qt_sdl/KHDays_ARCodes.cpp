@@ -93,6 +93,9 @@ ARCode KHDaysARCodes::AlwaysEnableXAndDPadToControlCommandMenu(std::string codeN
 
 ARCode KHDaysARCodes::Enable360Movement(std::string codeName, u32 address)
 {
+    // Reference:
+    // https://github.com/shocoman/Analog-Controls-for-NDS-Games-on-3DS/tree/master/patches_for_other_games/kingdom_hearts_358_2_days/action_replay_codes
+
     ARCode curcode2;
     curcode2.Name = codeName;
     curcode2.Enabled = true;
@@ -100,6 +103,7 @@ ARCode KHDaysARCodes::Enable360Movement(std::string codeName, u32 address)
     curcode2.Code.push_back( 0x537F84D8);        curcode2.Code.push_back(0xE12FFF1E);
     curcode2.Code.push_back( 0x037F8414);        curcode2.Code.push_back(0x00000000);
     curcode2.Code.push_back( 0xE27F5CC4);        curcode2.Code.push_back(0x00000960);
+
     curcode2.Code.push_back( 0x9001B082);        curcode2.Code.push_back(0x3B019B01);
     curcode2.Code.push_back( 0x2B009301);        curcode2.Code.push_back(0xB002DCFA);
     curcode2.Code.push_back( 0xB5F04770);        curcode2.Code.push_back(0x9204B087);
@@ -160,6 +164,7 @@ ARCode KHDaysARCodes::Enable360Movement(std::string codeName, u32 address)
     curcode2.Code.push_back( 0xBC10601A);        curcode2.Code.push_back(0x4708BC02);
     curcode2.Code.push_back( 0x04000134);        curcode2.Code.push_back(0x04000214);
     curcode2.Code.push_back( 0xFFFF8100);        curcode2.Code.push_back(0x4B022280);
+
     curcode2.Code.push_back( 0x4B02601A);        curcode2.Code.push_back(0x47708018);
     curcode2.Code.push_back( 0x04000214);        curcode2.Code.push_back(0x04000134);
     curcode2.Code.push_back( 0x200EB51F);        curcode2.Code.push_back(0x4468236D);
@@ -426,6 +431,8 @@ ARCode KHDaysARCodes::Enable360Movement(std::string codeName, u32 address)
     curcode2.Code.push_back( 0x158620AC);        curcode2.Code.push_back(0x13A07010);
     curcode2.Code.push_back( 0x13A00000);        curcode2.Code.push_back(0xE8BD0007);
     curcode2.Code.push_back( 0xE2172001);        curcode2.Code.push_back(0xE12FFF1E);
+
+    // From this line onwards, the code changes depends on the GameCode
     curcode2.Code.push_back( 0x027FFDF0);        curcode2.Code.push_back(0x0200524C);
     curcode2.Code.push_back( 0xD2000000);        curcode2.Code.push_back(0x00000000);
     curcode2.Code.push_back( 0x427FFC3C);        curcode2.Code.push_back(0x00000400);
