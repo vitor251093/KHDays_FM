@@ -16,44 +16,23 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
-#ifndef INPUT_H
-#define INPUT_H
+#ifndef KHDAYSCARTVALID_H
+#define KHDAYSCARTVALID_H
 
-#include <SDL2/SDL.h>
+#include "Utils.h"
 
-#include "types.h"
-
-namespace Input
+namespace melonDS
 {
 
-using namespace melonDS;
-extern int JoystickID;
-extern int JoystickVendorID;
-extern int JoystickDeviceID;
-extern SDL_Joystick* Joystick;
-
-extern u32 InputMask;
-extern u32 TouchInputMask;
-extern u32 CmdMenuInputMask;
-extern u32 PriorPriorCmdMenuInputMask;
-
-void Init();
-
-// set joystickID before calling openJoystick()
-void OpenJoystick();
-void CloseJoystick();
-
-void KeyPress(QKeyEvent* event);
-void KeyRelease(QKeyEvent* event);
-
-void Process();
-
-bool HotkeyDown(int id);
-bool HotkeyPressed(int id);
-bool HotkeyReleased(int id);
-
-bool IsRightModKey(QKeyEvent* event);
+class CartValidator
+{
+public:
+    static u32 get();
+    static void load(u32 gamecode);
+    static bool isDays();
+    static bool isRecoded();
+    static bool isValid();
+};
 
 }
-
-#endif // INPUT_H
+#endif // KHDAYSCARTVALID_H

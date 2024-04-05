@@ -16,12 +16,12 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
-#ifndef KHDAYS_GPU_OPENGL_SHADERS_H
-#define KHDAYS_GPU_OPENGL_SHADERS_H
+#ifndef KHRECODED_GPU_OPENGL_SHADERS_H
+#define KHRECODED_GPU_OPENGL_SHADERS_H
 
 namespace melonDS
 {
-const char* kCompositorFS_KhDays = R"(#version 140
+const char* kCompositorFS_KhReCoded = R"(#version 140
 
 uniform uint u3DScale;
 uniform int u3DXPos;
@@ -230,13 +230,6 @@ vec2 getSingleSquaredScreenTextureCoordinates(float xpos, float ypos, int screen
 
     // nothing (clear screen)
     return initialScreenMargin + clearVect;
-}
-
-vec2 getSingleScreenTextureCoordinates(float xpos, float ypos, int screenIndex)
-{
-    vec2 texPosition3d = vec2(xpos, ypos);
-    vec2 initialScreenMargin = (screenIndex == 2 ? vec2(0, 192.0) : vec2(0, 0));
-    return texPosition3d + initialScreenMargin;
 }
 
 vec2 getHorizontalDualScreenTextureCoordinates(float xpos, float ypos, vec2 clearVect)
@@ -517,10 +510,10 @@ ivec2 getCutsceneTextureCoordinates(float xpos, float ypos)
     //     return ivec2(getVerticalDualScreenTextureCoordinates(xpos, ypos, vec2(-1, -1)));
     // }
     if (isScreenBlack(1)) {
-        return ivec2(getSingleScreenTextureCoordinates(xpos, ypos, 1));
+        return ivec2(getSingleSquaredScreenTextureCoordinates(xpos, ypos, 1, vec2(-1, 0)));
     }
     if (isScreenBlack(0)) {
-        return ivec2(getSingleScreenTextureCoordinates(xpos, ypos, 2));
+        return ivec2(getSingleSquaredScreenTextureCoordinates(xpos, ypos, 2, vec2(-1, 0)));
     }
     return ivec2(getHorizontalDualScreenTextureCoordinates(xpos, ypos, vec2(-1, 0)));
 }
@@ -884,4 +877,4 @@ void main()
 
 }
 
-#endif // KHDAYS_GPU_OPENGL_SHADERS_H
+#endif // KHRECODED_GPU_OPENGL_SHADERS_H
