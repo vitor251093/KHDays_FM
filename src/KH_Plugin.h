@@ -77,6 +77,15 @@ public:
             return KHReCodedPlugin::setAspectRatio(nds, aspectRatio);
         }
     }
+    static std::string assetsFolder() {
+        if (CartValidator::isDays()) {
+            return "days";
+        }
+        if (CartValidator::isRecoded()) {
+            return "recoded";
+        }
+        return std::to_string(CartValidator::get());
+    }
 };
 }
 
